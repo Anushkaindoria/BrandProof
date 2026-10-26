@@ -104,6 +104,37 @@ Backend URLs:
 
 The backend creates tables and seeds the demo workspace on startup.
 
+### Windows PowerShell commands
+
+If you are running the project from Windows PowerShell, use these commands instead of the Linux/macOS activation command:
+
+```powershell
+cd C:\Users\samai\Desktop\hackathon
+Copy-Item .env.example .env
+cd backend
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+If activation is blocked:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Start the frontend in a second PowerShell window:
+
+```powershell
+cd C:\Users\samai\Desktop\hackathon\frontend
+npm install
+npm run dev
+```
+
+Use `python -m pip`, rather than a possibly different global `pip`, to ensure packages install into the active `.venv`. The Linux command `. .venv/bin/activate` is not the correct Windows PowerShell command.
+
 ### Start the frontend
 
 Terminal 2:

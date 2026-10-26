@@ -41,6 +41,38 @@ npm run dev
 
 Open `http://localhost:3000`. The frontend calls `http://localhost:8000/api` by default. Set `NEXT_PUBLIC_API_URL` to a deployed backend URL when deploying.
 
+### Windows PowerShell setup
+
+From PowerShell, use the Windows virtual-environment activation script:
+
+```powershell
+cd C:\Users\samai\Desktop\hackathon
+Copy-Item .env.example .env
+
+cd backend
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+If PowerShell blocks activation, allow it only for the current terminal:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+Open a second PowerShell window for the frontend:
+
+```powershell
+cd C:\Users\samai\Desktop\hackathon\frontend
+npm install
+npm run dev
+```
+
+Do not use `. .venv/bin/activate` in Windows PowerShell; `bin/activate` is the Linux/macOS path. On Windows the path is `.\.venv\Scripts\Activate.ps1`.
+
 To explicitly reset the synthetic data:
 
 ```bash
