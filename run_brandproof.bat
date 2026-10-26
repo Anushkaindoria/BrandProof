@@ -92,10 +92,29 @@ if not exist "%FRONTEND%\node_modules" (
     popd
 )
 
+echo Checking the demo database schema...
+pushd "%BACKEND%"
+"%PYTHON%" -c "from sqlalchemy import inspect; from app.db import engine; i=inspect(engine); raise SystemExit(0 if i.has_table('audit_runs') and 'provider_error' in {c['name'] for c in i.get_columns('audit_runs')} and i.has_table('brand_assets') else 1)" >nul 2>&1
+set "DB_CHECK=%errorlevel%"
+popd
+if not "%DB_CHECK%"=="0" (
+    echo Initializing or upgrading the synthetic demo database...
+    pushd "%BACKEND%"
+    "%PYTHON%" seed.py
+    if errorlevel 1 (
+        popd
+        echo ERROR: Could not initialize the demo database.
+        pause
+        exit /b 1
+    )
+    popd
+)
+
 echo Starting the backend on http://localhost:8000 ...
 start "BrandProof Backend" /D "%BACKEND%" cmd /k ".venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
 
 echo Starting the frontend on http://localhost:3000 ...
+if exist "%FRONTEND%\.next\dev\lock" del /f /q "%FRONTEND%\.next\dev\lock" >nul 2>&1
 start "BrandProof Frontend" /D "%FRONTEND%" cmd /k "npm run dev"
 
 echo Waiting for the frontend to start...

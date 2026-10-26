@@ -91,6 +91,14 @@ cd backend
 python seed.py
 ```
 
+For a persistent deployment database, apply the versioned schema before starting the API:
+
+```bash
+cd backend
+. .venv/bin/activate
+alembic upgrade head
+```
+
 ## Judge demo path
 
 1. Open the Dashboard and click **NovaTech X1 launch ad** or open **Content Audit**.
@@ -98,9 +106,9 @@ python seed.py
 3. Inspect the unsupported waterproof claim and unsupported superlative.
 4. Replace the draft with the suggested clean copy or edit it manually; run the audit again.
 5. Submit for review.
-6. Switch the visible Demo role selector to Reviewer and open Review Queue. In this MVP the backend uses the demo reviewer identity and server-side state transition; the role selector communicates the intended persona boundary.
+6. Switch the visible Demo role selector to Reviewer and open Review Queue. The selected role is sent in `X-Demo-Role` and checked by the demo backend; it is not production authentication.
 7. Approve the clean version, then open Content History to see its hash and passport.
-8. Switch to Brand Administrator, open Brand Knowledge, and add/edit an approved fact through the API/UI. A dependency-aware changed fact is surfaced in Brand Drift for content that previously depended on it.
+8. Switch to Brand Administrator, open Brand Knowledge, and add/edit an approved fact, approve a source document, or upload an asset. A dependency-aware changed fact is surfaced in Brand Drift for content that previously depended on it.
 
 The sample campaign and all product facts are fictional illustrative data.
 
@@ -110,8 +118,10 @@ See `.env.example`:
 
 - `DATABASE_URL`: SQLite or PostgreSQL SQLAlchemy URL. Default is SQLite.
 - `DEMO_MODE`: keeps the synthetic workspace enabled.
-- `LLM_PROVIDER`, `LLM_API_KEY`: optional provider configuration. The MVP deliberately remains honest and operates in rules-only mode when no key is configured. An external provider adapter is not claimed as integrated.
+- `LLM_PROVIDER`, `LLM_API_KEY`: optional provider configuration. Use `gemini` plus a key to enable semantic suggestions; no key is required for rules-only mode.
+- `LLM_MODEL`: Gemini model name when `LLM_PROVIDER=gemini`.
 - `MAX_UPLOAD_BYTES`: upload limit.
+- `STORAGE_DIR`: private local asset storage directory. Default is `uploads`.
 - `CORS_ORIGINS`: comma-separated frontend origins.
 - `NEXT_PUBLIC_API_URL`: browser-visible backend API base URL.
 
@@ -141,8 +151,9 @@ Docker is not available in the current build environment, so no unverified image
 ## Known limitations
 
 - This is a synthetic-data demo workspace, not production authentication or full multi-tenant identity. Backend organization scoping is present for demo records, but production auth middleware and account provisioning remain necessary.
-- The current audit engine is deterministic rules-only. The UI clearly reports this; no unavailable LLM integration is represented as complete.
-- PostgreSQL migrations, pgvector retrieval, OCR, visual asset comparison, and object storage adapters are deferred. SQLite schema creation is automatic for the MVP.
+- Rules remain authoritative for high-risk checks. An optional Gemini adapter is implemented, but no external key is bundled or live-tested.
+- PostgreSQL/Alembic migration support is included but PostgreSQL/Docker was not executed here. Semantic pgvector retrieval, visual asset comparison, and object storage remain deferred.
+- Image OCR requires the Python packages plus a separately installed Tesseract executable. Without it, the UI reports OCR as unavailable.
 - The passport records evidence and process, but is not a mathematical or legal guarantee.
 
 ## Submission artifacts

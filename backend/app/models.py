@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -127,10 +127,25 @@ class AuditRun(Base):
     content_version_id: Mapped[int] = mapped_column(ForeignKey("content_versions.id"), index=True)
     engine_version: Mapped[str] = mapped_column(String(80), default="rules-engine-1.0")
     provider_mode: Mapped[str] = mapped_column(String(80), default="rules-only")
+    provider_error: Mapped[str] = mapped_column(Text, default="")
     overall_status: Mapped[str] = mapped_column(String(40), default="changes_required")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     content_version: Mapped[ContentVersion] = relationship(back_populates="audit_runs")
     findings: Mapped[list["Finding"]] = relationship(back_populates="audit_run", cascade="all, delete-orphan")
+    claims: Mapped[list["ExtractedClaim"]] = relationship(back_populates="audit_run", cascade="all, delete-orphan")
+
+
+class ExtractedClaim(Base):
+    __tablename__ = "extracted_claims"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    audit_run_id: Mapped[int] = mapped_column(ForeignKey("audit_runs.id"), index=True)
+    claim_text: Mapped[str] = mapped_column(Text)
+    claim_type: Mapped[str] = mapped_column(String(50), default="statement")
+    entity: Mapped[str] = mapped_column(String(120), default="")
+    structured_value: Mapped[str] = mapped_column(String(255), default="")
+    position_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    position_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    audit_run: Mapped[AuditRun] = relationship(back_populates="claims")
 
 
 class Finding(Base):
@@ -192,3 +207,29 @@ class AuditEvent(Base):
     event_type: Mapped[str] = mapped_column(String(60))
     message: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class BrandAsset(Base):
+    __tablename__ = "brand_assets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    asset_type: Mapped[str] = mapped_column(String(50), default="logo")
+    storage_key: Mapped[str] = mapped_column(String(255))
+    mime_type: Mapped[str] = mapped_column(String(120), default="application/octet-stream")
+    checksum: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(30), default="unreviewed")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class UserRoleEvent(Base):
+    __tablename__ = "user_role_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    old_role: Mapped[str] = mapped_column(String(30))
+    new_role: Mapped[str] = mapped_column(String(30))
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

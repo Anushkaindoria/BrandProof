@@ -20,21 +20,22 @@ The product is implemented at `frontend/app/page.tsx` with a responsive dashboar
 
 ## Technology and architecture
 
-The frontend is Next.js 16.4.3, TypeScript, React, and CSS. The backend is FastAPI, Pydantic, SQLAlchemy, and pypdf. SQLite is the zero-config default; PostgreSQL/pgvector is represented in Docker Compose for deployment-shaped environments. The audit engine is rules-only in this build and uses exact structured retrieval for facts and policies. Details are in `technology_and_implementation.md`.
+The frontend is Next.js 16.4.3, TypeScript, React, and CSS. The backend is FastAPI, Pydantic, SQLAlchemy, pypdf, Alembic, Pillow, and pytesseract. SQLite is the zero-config default; PostgreSQL/pgvector is represented in Docker Compose for deployment-shaped environments. The audit engine uses exact structured retrieval for facts and policies, with explicit rules-only fallback and an optional Gemini adapter. Details are in `technology_and_implementation.md`.
 
 ## AI processing and data flow
 
-The current pipeline normalizes submitted text, extracts numerical/marketing claims, retrieves relevant approved facts and policies, runs deterministic validation, emits structured findings, validates evidence ownership, persists dependencies, and returns the audit to the UI. An optional provider configuration is visible, but no unverified external model integration is claimed. This makes the fallback explicit rather than pretending deterministic logic is LLM reasoning.
+The current pipeline normalizes submitted text, extracts and persists claims with positions, retrieves relevant approved facts and policies, runs deterministic validation and administrator-authored compiled rules, emits structured findings, validates evidence ownership, persists dependencies, and returns the audit to the UI. When Gemini configuration is present, a real HTTP adapter sends retrieved context for semantic suggestions, validates structured JSON, and visibly falls back on provider errors. Without a key, the UI explicitly reports rules-only mode.
 
 ## Testing results
 
 Executed checks:
 
-- Backend `DATABASE_URL=sqlite:///./test_brandproof.db .venv/bin/pytest -q`: **6 passed**.
+- Backend `DATABASE_URL=sqlite:///./test_brandproof.db .venv/bin/pytest -q`: **11 passed**.
 - Backend `.venv/bin/python -m py_compile app/*.py tests/*.py`: **passed**.
 - Frontend `npx tsc --noEmit`: **passed**.
 - Frontend `npm run build`: **passed** after upgrading Next.js from 15.1.6 to 16.4.3 because the initial Next 15 binary produced a bus error in this environment.
 - Live API smoke check: `/api/health`, `/api/dashboard`, and `/` returned HTTP 200 while the local services were running.
+- Fresh Alembic migration check: **passed** with `alembic upgrade head` and `alembic check`.
 - Docker build/run: **not run** because Docker is not installed in the WSL environment.
 - Browser screenshot journey: **not run** because computer-control Xvfb is unavailable.
 
@@ -44,7 +45,7 @@ Secrets remain environment-based. Uploads restrict extensions and size, use safe
 
 ## Known limitations
 
-Production authentication and tenant provisioning, OCR, visual asset comparison, semantic vector retrieval, full Alembic migrations, object storage, and a provider-specific LLM adapter remain incomplete. SQLite is the tested local path. PostgreSQL/pgvector is deployment preparation rather than an executed environment check.
+Production authentication and tenant provisioning, visual asset comparison, semantic vector retrieval, object storage, and background jobs remain incomplete. OCR requires a separately installed Tesseract executable. The Gemini adapter exists but no live provider key was available for an external call test. SQLite is the tested local path. PostgreSQL/pgvector is deployment preparation rather than an executed environment check.
 
 ## Round 3 improvements
 

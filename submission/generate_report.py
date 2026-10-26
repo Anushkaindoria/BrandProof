@@ -69,7 +69,7 @@ story.append(Spacer(1, 10))
 story.append(Paragraph("Verification snapshot", styles["BPH2"]))
 table = Table([
     ["Check", "Result"],
-    ["Backend automated tests", "6 passed"],
+    ["Backend automated tests", "11 passed"],
     ["Python compile check", "Passed"],
     ["Frontend TypeScript", "Passed"],
     ["Next.js production build", "Passed"],

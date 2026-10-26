@@ -9,4 +9,9 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-The app creates the schema and seeds the synthetic BrandProof Demo Workspace on startup. Use `python seed.py` to reset the seed data.
+The app creates the schema and seeds the synthetic BrandProof Demo Workspace on startup. Use `python seed.py` to reset the seed data. For a persistent deployment database, run `alembic upgrade head` before starting the API.
+
+Optional integrations:
+
+- Set `LLM_PROVIDER=gemini`, `LLM_API_KEY`, and `LLM_MODEL` to enable provider-backed semantic review. Rules remain authoritative for deterministic checks and provider failures are recorded visibly.
+- Image OCR uses Pillow/pytesseract and requires the Tesseract executable installed separately on the host.

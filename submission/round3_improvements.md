@@ -6,7 +6,7 @@ The roadmap below contains exactly three substantial product improvements. None 
 
 **Round 2 that works:** exact fact lookup, regex claim extraction for key numerical/marketing patterns, terminology checks, policy checks, source-linked findings, and explicit insufficient-evidence status.
 
-**Incomplete:** claim decomposition is narrow, evidence quality is not scored, semantic retrieval is not implemented, and the optional provider adapter is not shipped.
+**Incomplete:** claim decomposition is narrow, evidence quality is not scored, and semantic retrieval is not implemented. The Gemini adapter exists but is not yet benchmarked against a live provider in this demo environment.
 
 **Round 3 capability:** build a claim decomposition service that separates a sentence into atomic factual, comparative, and implied claims; index approved source chunks with pgvector plus full-text fallback; rank evidence quality and freshness; and validate provider JSON against Pydantic schemas before persistence.
 

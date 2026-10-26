@@ -113,6 +113,46 @@ def run_rules_audit(text: str, facts: list[ApprovedFact], policies: list[Policy]
             source_reference=superlative_policy.source_reference if superlative_policy else "Review required",
         ))
 
+    for policy in policies:
+        if policy.active is False:
+            continue
+        if policy.rule_type in {"prohibited_claim", "prohibited_term"}:
+            for prohibited in [value.strip() for value in policy.rule_value.split("|") if value.strip()]:
+                match = re.search(rf"\b{re.escape(prohibited)}\b", text, re.IGNORECASE)
+                if match and not any(f.claim_text.lower() == match.group(0).lower() and f.evidence_id == policy.id for f in findings) and not (prohibited.lower() == "waterproof" and any(f.issue_key == "waterproof-unsupported" for f in findings)):
+                    findings.append(FindingDraft(
+                        issue_key=f"policy-{policy.id}-{prohibited.lower().replace(' ', '-')}",
+                        category="Policy compliance",
+                        severity="high" if policy.rule_type == "prohibited_claim" else "medium",
+                        claim_text=match.group(0),
+                        explanation=policy.description or f"The term '{prohibited}' is prohibited by the approved brand policy.",
+                        verification_status="Contradicted",
+                        suggested_correction=f"Remove or replace '{prohibited}' according to the approved policy.",
+                        confidence="high",
+                        evidence_type="policy",
+                        evidence_id=policy.id,
+                        evidence_label=policy.name,
+                        evidence_excerpt=policy.description,
+                        source_reference=policy.source_reference,
+                    ))
+
+        if policy.rule_type in {"required_phrase", "required_disclaimer"} and policy.rule_value.lower() not in text.lower():
+            findings.append(FindingDraft(
+                issue_key=f"missing-required-{policy.id}",
+                category="Policy compliance",
+                severity="high",
+                claim_text="[required phrase missing]",
+                explanation=f"This content does not include the required approved phrase: {policy.rule_value}.",
+                verification_status="Contradicted",
+                suggested_correction=f"Add the required phrase: {policy.rule_value}",
+                confidence="high",
+                evidence_type="policy",
+                evidence_id=policy.id,
+                evidence_label=policy.name,
+                evidence_excerpt=policy.description or policy.rule_value,
+                source_reference=policy.source_reference,
+            ))
+
     for item in terminology:
         if item.active is False:
             continue

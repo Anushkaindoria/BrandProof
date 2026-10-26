@@ -12,8 +12,8 @@
 4. Click/read the evidence panel on the battery issue: `NovaTech_X1_Product_Brief.pdf · p. 2` and the approved 5000 mAh excerpt.
 5. Replace the copy with: “Meet the NovaTech X1 with a 5000 mAh battery and a 1 year warranty.” Run the audit again. Emphasize that this is a new content version and stale findings are not silently reused.
 6. Submit the clean version for review. Switch the visible demo role to Reviewer and open **Review Queue**.
-7. Approve the reviewed version. Open **Content History** and explain the version hash and passport record.
-8. Switch to Brand Administrator. Update an approved fact through the knowledge/API workflow, then open **Brand Drift** to show the dependent content marked for revalidation.
+7. Add a review comment, approve the reviewed version, and open **Content History** to view the expanded version hash and passport record.
+8. Switch to Brand Administrator. Update an approved fact through the knowledge/API workflow, approve a source document if one was uploaded, then open **Brand Drift** to show the dependent content marked for revalidation.
 
 ## Technical differentiators
 
@@ -21,7 +21,7 @@
 - Evidence references are restricted to retrieved organization records; fabricated source IDs are not accepted.
 - Immutable content versions and human approval are separate from automated analysis.
 - Dependency-aware change impact avoids invalidating unrelated approvals.
-- Explicit rules-only mode keeps the demo reliable and honest without an API key.
+- Explicit rules-only mode keeps the demo reliable and honest without an API key; Gemini semantic suggestions are available when configured and provider failures remain visible.
 
 ## Explain the Round 3 roadmap
 

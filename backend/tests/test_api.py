@@ -49,3 +49,73 @@ def test_upload_rejects_unsupported_type():
     with TestClient(app) as client:
         response = client.post("/api/content/upload", files={"file": ("unsafe.html", b"<script>alert(1)</script>", "text/html")})
         assert response.status_code == 415
+
+
+def test_backend_role_authorization_and_source_approval():
+    with TestClient(app) as client:
+        no_role = client.post("/api/facts", json={"key": "screen_size", "value": "6.1 inches"})
+        assert no_role.status_code == 401
+        creator = client.post("/api/facts", headers={"X-Demo-Role": "creator"}, json={"key": "screen_size", "value": "6.1 inches"})
+        assert creator.status_code == 403
+        admin = client.post("/api/facts", headers={"X-Demo-Role": "admin"}, json={"key": "screen_size", "value": "6.1 inches"})
+        assert admin.status_code == 200
+
+        uploaded = client.post("/api/content/upload", files={"file": ("guidelines.txt", b"Use NovaTech X1 exactly.", "text/plain")})
+        assert uploaded.status_code == 200
+        documents = client.get("/api/knowledge").json()["documents"]
+        document = next(item for item in documents if item["filename"] == "guidelines.txt")
+        assert document["status"] == "unreviewed"
+        approved = client.post(f"/api/documents/{document['id']}/approve", headers={"X-Demo-Role": "admin"})
+        assert approved.status_code == 200
+        assert approved.json()["status"] == "approved"
+
+
+def test_claims_are_persisted_and_provider_mode_is_explicit():
+    with TestClient(app) as client:
+        item = client.post("/api/content", json={"title": "Claims test", "content_type": "Advertisement", "context": "NovaTech X1", "text": "Meet the NovaTech X1! Enjoy a 7000 mAh battery and completely waterproof protection. The best phone ever!"}).json()
+        response = client.post(f"/api/content/{item['id']}/audit")
+        assert response.status_code == 200
+        assert len(response.json()["audit"]["claims"]) >= 3
+        assert response.json()["audit"]["provider_mode"] == "rules-only"
+
+
+def test_approval_requires_submitted_clean_version_and_new_version_has_no_old_passport():
+    with TestClient(app) as client:
+        item = client.post("/api/content", json={"title": "Clean demo", "content_type": "Advertisement", "context": "NovaTech X1", "text": "NovaTech X1 includes a 5000 mAh battery and a 1 year warranty."}).json()
+        client.post(f"/api/content/{item['id']}/audit")
+        client.post(f"/api/content/{item['id']}/submit")
+        approved = client.post(f"/api/content/{item['id']}/review", headers={"X-Demo-Role": "reviewer"}, json={"decision": "approve", "comment": "Reviewed"})
+        assert approved.status_code == 200
+        new_version = client.post(f"/api/content/{item['id']}/versions", json={"text": "A changed draft."})
+        assert new_version.status_code == 200
+        assert client.get(f"/api/content/{item['id']}/passport").status_code == 404
+
+
+def test_policy_compiler_required_phrase_finds_missing_requirement():
+    with TestClient(app) as client:
+        policy = client.post("/api/policies", headers={"X-Demo-Role": "admin"}, json={"name": "Demo disclaimer", "rule_type": "required_phrase", "rule_value": "Terms apply", "description": "Required disclaimer for this campaign."})
+        assert policy.status_code == 200
+        item = client.post("/api/content", json={"title": "Disclaimer test", "content_type": "Advertisement", "context": "NovaTech X1", "text": "A NovaTech X1 campaign without the disclaimer."}).json()
+        audit = client.post(f"/api/content/{item['id']}/audit")
+        assert audit.status_code == 200
+        assert any(finding["issue_key"] == f"missing-required-{policy.json()['id']}" for finding in audit.json()["audit"]["findings"])
+
+
+def test_policy_change_flags_approved_dependent_content():
+    with TestClient(app) as client:
+        policy = client.post("/api/policies", headers={"X-Demo-Role": "admin"}, json={"name": "No guarantee claims", "rule_type": "prohibited_claim", "rule_value": "guaranteed", "description": "Do not promise guaranteed outcomes."})
+        assert policy.status_code == 200
+        item = client.post("/api/content", json={"title": "Policy drift test", "content_type": "Advertisement", "context": "NovaTech X1", "text": "Guaranteed everyday performance."}).json()
+        audit = client.post(f"/api/content/{item['id']}/audit")
+        assert audit.status_code == 200
+        target_findings = audit.json()["audit"]["findings"]
+        assert any(finding["evidence"]["id"] == policy.json()["id"] for finding in target_findings)
+        for finding in target_findings:
+            resolved = client.post(f"/api/findings/{finding['id']}/resolve", json={"action": "accept", "reason": "Reviewed by creator"})
+            assert resolved.status_code == 200
+        assert client.post(f"/api/content/{item['id']}/submit").status_code == 200
+        assert client.post(f"/api/content/{item['id']}/review", headers={"X-Demo-Role": "reviewer"}, json={"decision": "approve", "comment": "Policy dependency recorded."}).status_code == 200
+        updated = client.patch(f"/api/policies/{policy.json()['id']}", headers={"X-Demo-Role": "admin"}, json={"description": "Updated policy for drift."})
+        assert updated.status_code == 200
+        assert updated.json()["affected_versions"] >= 1
+        assert any(entry["content"]["id"] == item["id"] for entry in client.get("/api/drift").json()["items"])

@@ -16,37 +16,33 @@ This document explains what is built, what is incomplete, how to start the produ
 |---|---|
 | Demo workspace | Synthetic BrandProof workspace with NovaTech X1 facts, policies, terminology, source document, users, and sample advertisement. |
 | Dashboard | Counts and activity are calculated from the database. Shows audit runs, unresolved findings, review queue items, drift items, categories, and recent events. |
-| Brand Knowledge | Lists approved facts, policies, terminology, and source documents. Admin demo role can create facts and policies. |
-| Content Audit | Create content, edit text, save versions, run audits, see structured findings, inspect evidence, resolve findings, and submit revisions. |
+| Brand Knowledge | Lists and manages approved facts, policies, terminology, source documents, and brand assets. Admin demo role can create, edit, deactivate, and approve records. |
+| Content Audit | Create content, edit text, upload TXT/MD/PDF, optional OCR image input, save versions, run audits, see persisted claims and findings, inspect evidence, apply corrections, resolve findings, and submit revisions. |
 | Deterministic verification | Detects conflicting numerical claims, unsupported waterproof language, unsupported superlatives, warranty conflicts, and prohibited terminology. |
 | Evidence | Findings include verification status, severity, explanation, suggestion, confidence, evidence type, evidence ID, excerpt, and source reference. |
 | Revision loop | Every revision is saved as a new content version. Old versions and audit runs are not silently overwritten. |
 | Human review | Submitted content can be approved, rejected, or sent back for changes. Approval is separate from automated auditing. |
-| Content passport | Approved versions receive a SHA-256 hash, dependency versions, audit engine version, reviewer, decision, and timestamp. |
+| Content passport | Approved versions receive a SHA-256 hash, dependency versions, extracted audit findings, audit engine version, reviewer, decision, and timestamp; Content History displays it. |
 | Brand Drift | Changed fact versions identify dependent approved content and mark it for revalidation. |
-| Upload baseline | `.txt`, `.md`, and text-based PDF extraction with file type, size, filename, empty-file, and extraction validation. |
+| Upload baseline | `.txt`, `.md`, and text-based PDF extraction with file type, size, filename, empty-file, and extraction validation; image OCR uses optional Tesseract. |
 | API | FastAPI endpoints exist for health, bootstrap, dashboard, knowledge, facts, policies, content, versions, audits, findings, reviews, passports, drift, history, and uploads. |
-| Deployment preparation | Environment configuration, Dockerfiles, Docker Compose, PostgreSQL/pgvector configuration, README, seed script, and migration marker are included. |
+| Deployment preparation | Environment configuration, Dockerfiles, Docker Compose, PostgreSQL/pgvector configuration, README, seed script, and Alembic migration lifecycle are included. |
 
 ### Implemented but limited or incompletely tested
 
 | Area | Current state |
 |---|---|
-| PostgreSQL | SQLAlchemy and `psycopg` configuration are included. SQLite was the tested local database. Docker/PostgreSQL could not be executed because Docker is unavailable in the environment. |
+| PostgreSQL | SQLAlchemy, `psycopg`, and Alembic configuration are included. SQLite was the tested local database. Docker/PostgreSQL could not be executed because Docker is unavailable in the environment. |
 | PDF extraction | Implemented with `pypdf`; the automated suite tests upload rejection but does not include a real PDF fixture. |
-| Demo role selector | The UI lets the judge switch between Creator, Reviewer, and Brand Administrator views. It is a demo persona switch, not production authentication. |
-| Admin editing | Fact and policy creation is available in the UI. Fact version updates are available through the backend API and power the drift demonstration. A richer edit form is not complete. |
-| Passport display | Passport data is persisted and available through the API/history flow. A dedicated expanded passport screen is not complete. |
-| LLM configuration | Provider fields and explicit mode reporting exist, but the current audit implementation is rules-only. |
+| Demo role selector | The UI switches Creator, Reviewer, and Brand Administrator personas and sends the selected role to backend mutations. It is still demo authorization, not production authentication. |
+| OCR | The endpoint and UI are implemented with Pillow/pytesseract; Windows also needs the Tesseract executable installed. |
+| LLM configuration | Gemini adapter, structured output validation, evidence-ID validation, and visible fallback errors are implemented; no external key was available for live testing. |
 
 ### Not built / deferred
 
 - Production login, account provisioning, session security, and complete multi-tenant authentication.
-- A production Gemini/OpenAI/other provider adapter.
-- OCR for scanned PDFs or images.
 - Visual logo/asset comparison with OpenCV or image embeddings.
 - pgvector semantic search and source-document chunk indexing.
-- Full Alembic migration lifecycle. The demo creates the SQLite schema using SQLAlchemy metadata and includes an initial migration marker.
 - Object storage adapter for private uploaded documents.
 - Background jobs, queues, and notifications.
 - A complete asset-management UI.
@@ -183,7 +179,7 @@ The top-right role selector has three demo personas:
 2. **Reviewer** — intended to inspect submitted content and record a decision.
 3. **Brand Administrator** — intended to manage approved knowledge and inspect drift.
 
-This selector is for the explicitly enabled demo environment. It is not a secure login system. The backend uses the seeded demo reviewer identity for the approval endpoint.
+This selector is for the explicitly enabled demo environment. It is not a secure login system. Mutating requests carry the selected `X-Demo-Role` header and the backend enforces the demo creator/reviewer/admin permissions. Replace this with real identity middleware before production.
 
 ### Dashboard
 
@@ -240,8 +236,10 @@ Source records show the filename, excerpt, page/reference text, and state. Seede
 1. Switch the role selector to **Brand Administrator**.
 2. Open **Brand Knowledge**.
 3. Use **Add approved fact** or **Add policy**.
-4. Enter the structured value and save.
-5. Re-run an audit to use the new record.
+4. Enter the structured value and save, or edit/deactivate an existing record.
+5. Upload a source document or brand asset. New uploads remain unreviewed.
+6. Approve the source/asset as administrator when it is confirmed.
+7. Re-run an audit to use approved structured records.
 
 The UI has creation controls. Versioned fact changes can also be exercised through the API, described below.
 
@@ -337,8 +335,9 @@ The reviewer workflow is:
 
 1. Open a queued item.
 2. Inspect the current version and its findings/evidence.
-3. Choose an approval decision through the review API flow.
-4. The backend records the decision against the exact content version.
+3. Add an optional review comment.
+4. Choose Approve, Request changes, or Reject in the reviewer panel.
+5. The backend records the decision against the exact content version.
 
 Possible decisions:
 
@@ -396,7 +395,7 @@ The backend upload endpoint accepts:
 
 The default maximum is 10 MB. HTML and other unsupported extensions are rejected. PDF extraction uses `pypdf`. Uploaded documents are stored as unreviewed source records and do not automatically become approved facts or policies.
 
-The current UI explains the upload path, while the endpoint is available for API clients. A full drag-and-drop upload control is not complete.
+The Content Audit page provides file controls for TXT/MD/PDF extraction and optional image OCR. Brand Knowledge provides source document and asset upload controls. A drag-and-drop uploader is not included, but the supported upload workflow is connected to the real backend.
 
 ---
 
@@ -436,7 +435,12 @@ The interactive API documentation is available at `http://localhost:8000/docs` w
 | GET | `/api/knowledge` | List facts, policies, terminology, and source documents. |
 | POST | `/api/facts` | Create an approved fact. |
 | PATCH | `/api/facts/{fact_id}` | Update a fact, increment its version, and flag dependencies. |
+| POST | `/api/facts/{fact_id}/deactivate` | Admin-deactivate a fact without deleting history. |
 | POST | `/api/policies` | Create a policy. |
+| PATCH | `/api/policies/{policy_id}` | Update a policy version and flag dependent content. |
+| POST | `/api/policies/{policy_id}/deactivate` | Admin-deactivate a policy without deleting history. |
+| POST | `/api/terminology` | Create an approved/prohibited terminology rule. |
+| PATCH | `/api/terminology/{term_id}` | Update terminology or active state. |
 | GET | `/api/content` | List organization content. |
 | POST | `/api/content` | Create an item and its first version. |
 | GET | `/api/content/{content_id}` | Return content, versions, latest audit, and review decisions. |
@@ -448,7 +452,13 @@ The interactive API documentation is available at `http://localhost:8000/docs` w
 | GET | `/api/history` | List content history. |
 | GET | `/api/content/{content_id}/passport` | Return the passport for the approved current version. |
 | GET | `/api/drift` | Return content affected by changed dependencies. |
-| POST | `/api/content/upload` | Extract text from supported upload types. |
+| POST | `/api/content/upload` | Extract text from supported upload types and record an unreviewed source document. |
+| POST | `/api/content/upload-image` | OCR an image when Tesseract is installed. |
+| POST | `/api/documents/{document_id}/approve` | Admin-approve an uploaded source document. |
+| POST | `/api/assets/upload` | Admin-upload a private brand asset with a SHA-256 checksum. |
+| POST | `/api/assets/{asset_id}/approve` | Admin-approve a brand asset. |
+| GET | `/api/users` | Admin-list demo users and roles. |
+| PATCH | `/api/users/{user_id}/role` | Admin-change a demo user role. |
 
 Example audit request:
 
@@ -510,7 +520,7 @@ curl -X PATCH http://localhost:8000/api/facts/1 \
 Executed checks in this workspace:
 
 ```text
-Backend pytest: 6 passed
+Backend pytest: 11 passed
 Python compile check: passed
 Frontend TypeScript check: passed
 Next.js production build: passed
@@ -525,7 +535,8 @@ Not executed:
 - Docker build/run, because Docker is not installed in the current WSL environment.
 - Browser screenshot automation, because the available browser-control display does not have Xvfb.
 - Real PostgreSQL container integration.
-- OCR and visual asset comparison, because those features are not implemented.
+- Visual asset comparison, because upload/approval is implemented but no similarity engine is claimed.
+- OCR live execution, because the Tesseract executable was not available in this environment; the endpoint and dependency path are implemented with a clear runtime error.
 
 ---
 

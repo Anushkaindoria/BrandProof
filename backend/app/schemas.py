@@ -12,12 +12,45 @@ class FactCreate(BaseModel):
     excerpt: str = ""
 
 
+class FactUpdate(BaseModel):
+    key: str | None = Field(default=None, min_length=2, max_length=120)
+    product: str | None = None
+    value: str | None = Field(default=None, min_length=1, max_length=255)
+    source_reference: str | None = None
+    excerpt: str | None = None
+    active: bool | None = None
+
+
 class PolicyCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
     rule_type: str = "prohibited_claim"
     rule_value: str = Field(min_length=1, max_length=255)
     description: str = ""
     source_reference: str = "Admin entry"
+
+
+class PolicyUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    rule_type: str | None = None
+    rule_value: str | None = None
+    description: str | None = None
+    source_reference: str | None = None
+    active: bool | None = None
+
+
+class TerminologyCreate(BaseModel):
+    prohibited: str = Field(min_length=1, max_length=120)
+    replacement: str = Field(min_length=1, max_length=160)
+
+
+class TerminologyUpdate(BaseModel):
+    prohibited: str | None = None
+    replacement: str | None = None
+    active: bool | None = None
+
+
+class RoleUpdate(BaseModel):
+    role: str = Field(pattern="^(creator|reviewer|admin)$")
 
 
 class ContentCreate(BaseModel):

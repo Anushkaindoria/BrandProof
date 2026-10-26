@@ -5,6 +5,7 @@ from .models import (
     ApprovedFact,
     AuditEvent,
     AuditRun,
+    ExtractedClaim,
     ContentItem,
     ContentStatus,
     ContentVersion,
@@ -89,6 +90,12 @@ def seed_database(reset: bool = False):
         seeded_audit = AuditRun(content_version_id=version.id, engine_version="rules-engine-1.0", provider_mode="rules-only", overall_status="changes_required")
         db.add(seeded_audit)
         db.flush()
+        import re
+        for sentence_match in re.finditer(r"[^.!?]+[.!?]?", DEMO_TEXT):
+            claim_text = sentence_match.group(0).strip()
+            if claim_text:
+                number_match = re.search(r"\b\d+(?:\.\d+)?\s*(?:mAh|year|years|%|mm|kg)\b", claim_text, re.I)
+                db.add(ExtractedClaim(audit_run_id=seeded_audit.id, claim_text=claim_text, claim_type="promotional" if re.search(r"\b(best|waterproof)\b", claim_text, re.I) else "statement", entity="NovaTech X1", structured_value=number_match.group(0) if number_match else "", position_start=sentence_match.start(), position_end=sentence_match.end()))
         for draft in drafts:
             if draft.evidence_id and draft.evidence_type in {"fact", "policy"}:
                 evidence = db.get(ApprovedFact if draft.evidence_type == "fact" else Policy, draft.evidence_id)
