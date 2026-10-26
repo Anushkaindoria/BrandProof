@@ -106,3 +106,7 @@ Docker is not available in the current build environment, so no unverified image
 ## Submission artifacts
 
 See [`submission/`](submission/) for the Round 2 report source, feature status, implementation notes, changes from Round 1, Round 3 roadmap, contributions, and judge script. A PDF report is generated when the local PDF toolchain is available; the source report remains authoritative and readable.
+
+## User guide and build status
+
+For a page-by-page usage guide, complete build-status matrix, API reference, demo instructions, code map, test status, and limitations, see [`docs/BrandProof_User_Guide.md`](docs/BrandProof_User_Guide.md).
