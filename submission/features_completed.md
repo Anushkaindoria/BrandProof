@@ -20,18 +20,18 @@
 - **Responsive product UI** — Next.js + TypeScript UI includes Dashboard, Brand Knowledge, Content Audit, Review Queue, Content History, Brand Drift, and Settings pages with empty states and explicit rules-only status.
 - **Health check and deployment files** — `/api/health`, `.env.example`, `.gitignore`, Dockerfiles, Docker Compose, and startup instructions are present.
 
-## Implemented but incompletely tested
+## Implemented; environment validation still pending
 
 - **PostgreSQL compatibility** — SQLAlchemy URLs, `psycopg`, Alembic, and Docker Compose pgvector configuration are included, but Docker/PostgreSQL execution was not possible in this environment.
 - **PDF extraction** — The code path is implemented through `pypdf` with page markers; the automated suite does not include a real PDF fixture.
 - **OCR** — The image OCR endpoint uses Pillow/pytesseract and reports a clear error when the Tesseract executable is unavailable. The executable was not available in this environment.
 - **Gemini provider** — A real HTTP adapter, retrieved-context prompt, Pydantic output validation, evidence-ID validation, and visible fallback error are implemented. No external API key was available for live provider testing.
 
-## Partially implemented
+## Partially implemented / advanced extension pending
 
 - **Visual asset comparison** — Assets can be uploaded, checksummed, approved, and listed; no visual similarity/comparison result is emitted.
 
-## Planned, not implemented
+## Planned, not implemented in Round 2
 
 - Visual asset comparison with OpenCV or image embeddings.
 - pgvector semantic retrieval and source-document chunk indexing.

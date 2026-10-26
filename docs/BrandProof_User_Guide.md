@@ -2,7 +2,7 @@
 
 **Product:** BrandProof AI  
 **Tagline:** Trusted Content. Stronger Brands.  
-**Status:** Round 2 local MVP, Git-ready, not deployed from this workspace.
+**Status:** Round 2 local MVP complete for the judge workflow; Git-ready, not deployed from this workspace.
 
 This document explains what is built, what is incomplete, how to start the product, what every page does, how to perform the complete judge workflow, and which backend features are available.
 
@@ -28,27 +28,27 @@ This document explains what is built, what is incomplete, how to start the produ
 | API | FastAPI endpoints exist for health, bootstrap, dashboard, knowledge, facts, policies, content, versions, audits, findings, reviews, passports, drift, history, and uploads. |
 | Deployment preparation | Environment configuration, Dockerfiles, Docker Compose, PostgreSQL/pgvector configuration, README, seed script, and Alembic migration lifecycle are included. |
 
-### Implemented but limited or incompletely tested
+### Implemented; environment validation still pending
 
 | Area | Current state |
 |---|---|
-| PostgreSQL | SQLAlchemy, `psycopg`, and Alembic configuration are included. SQLite was the tested local database. Docker/PostgreSQL could not be executed because Docker is unavailable in the environment. |
-| PDF extraction | Implemented with `pypdf`; the automated suite tests upload rejection but does not include a real PDF fixture. |
-| Demo role selector | The UI switches Creator, Reviewer, and Brand Administrator personas and sends the selected role to backend mutations. It is still demo authorization, not production authentication. |
-| OCR | The endpoint and UI are implemented with Pillow/pytesseract; Windows also needs the Tesseract executable installed. |
-| LLM configuration | Gemini adapter, structured output validation, evidence-ID validation, and visible fallback errors are implemented; no external key was available for live testing. |
+| PostgreSQL | SQLAlchemy, `psycopg`, and Alembic configuration are included. SQLite was the tested local database; Docker/PostgreSQL execution was unavailable in this environment. |
+| PDF extraction | Implemented with `pypdf` and page markers; the automated suite does not include a real PDF fixture. |
+| Demo role selector | Creator, Reviewer, and Brand Administrator personas are sent to and enforced by the demo backend. This is demo authorization, not production authentication. |
+| OCR | The endpoint and UI are implemented with Pillow/pytesseract; Windows also needs the Tesseract executable installed for a successful OCR run. |
+| LLM configuration | The Gemini adapter, structured output validation, evidence-ID validation, and visible fallback errors are implemented; no external key was available for a live provider call. |
 
-### Not built / deferred
+### Production or advanced extensions deferred
 
 - Production login, account provisioning, session security, and complete multi-tenant authentication.
 - Visual logo/asset comparison with OpenCV or image embeddings.
 - pgvector semantic search and source-document chunk indexing.
 - Object storage adapter for private uploaded documents.
 - Background jobs, queues, and notifications.
-- A complete asset-management UI.
-- A dedicated passport detail UI and richer reviewer comments interface.
+- Advanced asset management such as replacement history, previews, and visual comparison.
+- Signed/exportable passport bundles and richer reviewer collaboration tools.
 
-The application does not claim these deferred items are implemented.
+The Round 2 MVP does not claim these extensions are implemented. The core alternatives are present: local approved-asset records, a viewable passport panel, reviewer comments, and dependency-aware drift.
 
 ---
 
