@@ -55,7 +55,7 @@ if errorlevel 1 (
 :python_ready
 
 echo Checking backend dependencies...
-"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy" >nul 2>&1
+"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, pydantic_settings, pypdf, psycopg" >nul 2>&1
 if errorlevel 1 (
     echo Installing backend dependencies. This may take a few minutes...
     "%PYTHON%" -m pip install -r "%BACKEND%\requirements.txt"
