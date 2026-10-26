@@ -135,6 +135,16 @@ npm run dev
 
 Use `python -m pip`, rather than a possibly different global `pip`, to ensure packages install into the active `.venv`. The Linux command `. .venv/bin/activate` is not the correct Windows PowerShell command.
 
+### One-click launcher
+
+The repository root contains `run_brandproof.bat`. Double-click it, or run:
+
+```powershell
+.\run_brandproof.bat
+```
+
+It checks Python and npm, creates `backend\.venv` if missing, installs dependencies when they are missing, starts FastAPI in one Command Prompt window, starts Next.js in another, and opens `http://localhost:3000`. Close the two server windows to stop the application.
+
 ### Start the frontend
 
 Terminal 2:

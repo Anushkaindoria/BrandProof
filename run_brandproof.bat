@@ -1,0 +1,87 @@
+@echo off
+setlocal EnableExtensions
+
+rem BrandProof AI one-click local runner for Windows.
+rem Run this file from File Explorer or from PowerShell.
+
+set "ROOT=%~dp0"
+set "BACKEND=%ROOT%backend"
+set "FRONTEND=%ROOT%frontend"
+set "PYTHON=%BACKEND%\.venv\Scripts\python.exe"
+
+echo.
+echo ========================================
+echo       BrandProof AI local launcher
+echo ========================================
+echo.
+
+where py >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: Python launcher ^(py^) was not found.
+    echo Install Python 3.11 or newer, then run this file again.
+    pause
+    exit /b 1
+)
+
+where npm >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: npm was not found.
+    echo Install Node.js 20 or newer, then run this file again.
+    pause
+    exit /b 1
+)
+
+if not exist "%PYTHON%" (
+    echo Creating the backend virtual environment...
+    py -3 -m venv "%BACKEND%\.venv"
+    if errorlevel 1 (
+        echo ERROR: Could not create the backend virtual environment.
+        pause
+        exit /b 1
+    )
+)
+
+echo Checking backend dependencies...
+"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy" >nul 2>&1
+if errorlevel 1 (
+    echo Installing backend dependencies. This may take a few minutes...
+    "%PYTHON%" -m pip install -r "%BACKEND%\requirements.txt"
+    if errorlevel 1 (
+        echo ERROR: Backend dependency installation failed.
+        pause
+        exit /b 1
+    )
+)
+
+if not exist "%FRONTEND%\node_modules" (
+    echo Installing frontend dependencies. This may take a few minutes...
+    pushd "%FRONTEND%"
+    call npm install
+    if errorlevel 1 (
+        popd
+        echo ERROR: Frontend dependency installation failed.
+        pause
+        exit /b 1
+    )
+    popd
+)
+
+echo Starting the backend on http://localhost:8000 ...
+start "BrandProof Backend" /D "%BACKEND%" cmd /k ".venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000"
+
+echo Starting the frontend on http://localhost:3000 ...
+start "BrandProof Frontend" /D "%FRONTEND%" cmd /k "npm run dev"
+
+echo Waiting for the frontend to start...
+timeout /t 4 /nobreak >nul
+start "" http://localhost:3000
+
+echo.
+echo BrandProof AI is starting in two new windows.
+echo Frontend: http://localhost:3000
+echo Backend:  http://localhost:8000/docs
+echo Close the two server windows to stop the application.
+echo.
+pause
+
+endlocal

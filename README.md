@@ -73,6 +73,16 @@ npm run dev
 
 Do not use `. .venv/bin/activate` in Windows PowerShell; `bin/activate` is the Linux/macOS path. On Windows the path is `.\.venv\Scripts\Activate.ps1`.
 
+### One-click Windows launcher
+
+Double-click [`run_brandproof.bat`](run_brandproof.bat) from File Explorer, or run it from PowerShell:
+
+```powershell
+.\run_brandproof.bat
+```
+
+The launcher creates the backend virtual environment if needed, installs missing backend/frontend dependencies, starts the backend and frontend in separate windows, and opens `http://localhost:3000`. Close both server windows to stop the application.
+
 To explicitly reset the synthetic data:
 
 ```bash
