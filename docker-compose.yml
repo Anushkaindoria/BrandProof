@@ -1,0 +1,32 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://brandproof:brandproof@db:5432/brandproof
+      DEMO_MODE: "true"
+      CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: brandproof
+      POSTGRES_USER: brandproof
+      POSTGRES_PASSWORD: brandproof
+    ports:
+      - "5432:5432"
+    volumes:
+      - brandproof_pg:/var/lib/postgresql/data
+
+volumes:
+  brandproof_pg:

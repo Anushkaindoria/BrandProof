@@ -1,0 +1,4 @@
+-- BrandProof AI uses SQLAlchemy metadata.create_all for the zero-config demo.
+-- This migration marker documents the initial relational schema. Production
+-- deployments should run an Alembic-generated migration against PostgreSQL.
+-- The authoritative schema is defined in app/models.py.
