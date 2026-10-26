@@ -8,20 +8,13 @@ set "ROOT=%~dp0"
 set "BACKEND=%ROOT%backend"
 set "FRONTEND=%ROOT%frontend"
 set "PYTHON=%BACKEND%\.venv\Scripts\python.exe"
+set "PY_LAUNCHER="
 
 echo.
 echo ========================================
 echo       BrandProof AI local launcher
 echo ========================================
 echo.
-
-where py >nul 2>&1
-if errorlevel 1 (
-    echo ERROR: Python launcher ^(py^) was not found.
-    echo Install Python 3.11 or newer, then run this file again.
-    pause
-    exit /b 1
-)
 
 where npm >nul 2>&1
 if errorlevel 1 (
@@ -31,15 +24,35 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist "%PYTHON%" (
-    echo Creating the backend virtual environment...
-    py -3 -m venv "%BACKEND%\.venv"
-    if errorlevel 1 (
-        echo ERROR: Could not create the backend virtual environment.
-        pause
-        exit /b 1
-    )
+if exist "%PYTHON%" goto :python_ready
+
+where py >nul 2>&1
+if not errorlevel 1 set "PY_LAUNCHER=py -3"
+if defined PY_LAUNCHER goto :create_venv
+
+python --version >nul 2>&1
+if not errorlevel 1 set "PY_LAUNCHER=python"
+if defined PY_LAUNCHER goto :create_venv
+
+python3 --version >nul 2>&1
+if not errorlevel 1 set "PY_LAUNCHER=python3"
+if defined PY_LAUNCHER goto :create_venv
+
+echo ERROR: Python was not found as py, python, or python3.
+echo Install Python 3.11 or newer, then run this file again.
+pause
+exit /b 1
+
+:create_venv
+echo Creating the backend virtual environment...
+%PY_LAUNCHER% -m venv "%BACKEND%\.venv"
+if errorlevel 1 (
+    echo ERROR: Could not create the backend virtual environment.
+    pause
+    exit /b 1
 )
+
+:python_ready
 
 echo Checking backend dependencies...
 "%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy" >nul 2>&1
