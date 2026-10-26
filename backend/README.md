@@ -15,3 +15,5 @@ Optional integrations:
 
 - Set `LLM_PROVIDER=gemini`, `LLM_API_KEY`, and `LLM_MODEL` to enable provider-backed semantic review. Rules remain authoritative for deterministic checks and provider failures are recorded visibly.
 - Image OCR uses Pillow/pytesseract and requires the Tesseract executable installed separately on the host.
+- Upload storage defaults to organization-scoped local files. Set `STORAGE_BACKEND=s3`, `S3_STORAGE_BUCKET`, and compatible credentials for the S3 adapter.
+- `POST /api/content/{id}/audit/jobs` runs the persisted local background-audit flow; distributed queues are not required for the demo.

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -46,6 +46,7 @@ class SourceDocument(Base):
     filename: Mapped[str] = mapped_column(String(255))
     excerpt: Mapped[str] = mapped_column(Text, default="")
     page_reference: Mapped[str] = mapped_column(String(80), default="")
+    storage_key: Mapped[str] = mapped_column(String(255), default="")
     status: Mapped[str] = mapped_column(String(30), default="approved")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -128,6 +129,8 @@ class AuditRun(Base):
     engine_version: Mapped[str] = mapped_column(String(80), default="rules-engine-1.0")
     provider_mode: Mapped[str] = mapped_column(String(80), default="rules-only")
     provider_error: Mapped[str] = mapped_column(Text, default="")
+    retrieval_mode: Mapped[str] = mapped_column(String(40), default="lexical")
+    retrieved_context: Mapped[str] = mapped_column(Text, default="[]")
     overall_status: Mapped[str] = mapped_column(String(40), default="changes_required")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     content_version: Mapped[ContentVersion] = relationship(back_populates="audit_runs")
@@ -221,6 +224,32 @@ class BrandAsset(Base):
     status: Mapped[str] = mapped_column(String(30), default="unreviewed")
     version: Mapped[int] = mapped_column(Integer, default=1)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AssetComparison(Base):
+    __tablename__ = "asset_comparisons"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    reference_asset_id: Mapped[int] = mapped_column(ForeignKey("brand_assets.id"), index=True)
+    candidate_filename: Mapped[str] = mapped_column(String(255))
+    candidate_checksum: Mapped[str] = mapped_column(String(64))
+    similarity: Mapped[float] = mapped_column(Float)
+    verdict: Mapped[str] = mapped_column(String(30))
+    details: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuditJob(Base):
+    __tablename__ = "audit_jobs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    content_item_id: Mapped[int] = mapped_column(ForeignKey("content_items.id"), index=True)
+    requested_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    status: Mapped[str] = mapped_column(String(30), default="pending")
+    audit_run_id: Mapped[int | None] = mapped_column(ForeignKey("audit_runs.id"), nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

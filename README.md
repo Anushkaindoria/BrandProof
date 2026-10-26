@@ -122,6 +122,8 @@ See `.env.example`:
 - `LLM_MODEL`: Gemini model name when `LLM_PROVIDER=gemini`.
 - `MAX_UPLOAD_BYTES`: upload limit.
 - `STORAGE_DIR`: private local asset storage directory. Default is `uploads`.
+- `STORAGE_BACKEND`: `local` by default, or `s3` for the S3-compatible storage adapter.
+- `S3_STORAGE_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`: optional S3-compatible storage settings.
 - `CORS_ORIGINS`: comma-separated frontend origins.
 - `NEXT_PUBLIC_API_URL`: browser-visible backend API base URL.
 
@@ -152,7 +154,8 @@ Docker is not available in the current build environment, so no unverified image
 
 - This is a synthetic-data demo workspace, not production authentication or full multi-tenant identity. Backend organization scoping is present for demo records, but production auth middleware and account provisioning remain necessary.
 - Rules remain authoritative for high-risk checks. An optional Gemini adapter is implemented, but no external key is bundled or live-tested.
-- PostgreSQL/Alembic migration support is included but PostgreSQL/Docker was not executed here. Semantic pgvector retrieval, visual asset comparison, and object storage remain deferred.
+- PostgreSQL/Alembic migration support is included but PostgreSQL/Docker was not executed here. Lexical evidence retrieval, local visual comparison, and local/S3-compatible storage are implemented; pgvector retrieval remains deferred.
+- Background audit jobs use a persisted in-process worker pool for the demo. Distributed queues and notifications remain deployment extensions.
 - Image OCR requires the Python packages plus a separately installed Tesseract executable. Without it, the UI reports OCR as unavailable.
 - The passport records evidence and process, but is not a mathematical or legal guarantee.
 

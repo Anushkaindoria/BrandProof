@@ -11,8 +11,8 @@
 
 - The Round 2 demo defaults to SQLite instead of requiring PostgreSQL before the first page loads. This removes the biggest judge-demo setup risk while keeping a PostgreSQL/pgvector Docker Compose path and SQLAlchemy compatibility.
 - The first working audit engine is deterministic rules-only. This is an honest fallback for a missing provider key and makes the mandatory NovaTech demonstration reproducible. Provider configuration is surfaced, but no unavailable LLM integration is claimed.
-- Retrieval is exact structured lookup for the seeded facts and policies rather than an unverified vector similarity layer. This keeps numerical claims and source references dependable within the three-day build window.
-- OCR endpoint/UI, Gemini adapter, and Alembic configuration were added for Round 2. Live OCR requires the host Tesseract executable, live Gemini testing requires a provider key, and PostgreSQL/Docker execution was unavailable here. Visual asset similarity, semantic vector retrieval, object storage, and production authentication remain deferred rather than being represented by nonfunctional controls.
+- Retrieval is deterministic lexical lookup with exact-value and product boosts, persisted scores, and source references rather than an unverified vector similarity layer. This keeps numerical claims and source references dependable within the three-day build window.
+- OCR endpoint/UI, Gemini adapter, Alembic configuration, local/S3-compatible storage, visual comparison, and persisted background audit jobs were added for Round 2. Live OCR requires the host Tesseract executable, live Gemini/S3 testing requires external configuration, and PostgreSQL/Docker execution was unavailable here. pgvector retrieval, production authentication, distributed queues, and notifications remain deferred rather than being represented by nonfunctional controls.
 
 ## Functionality retained
 
@@ -25,4 +25,4 @@
 
 ## Deferred work
 
-The largest deferred components are semantic vector retrieval, visual comparison, object storage, background processing, and production identity. The MVP preserves upgrade points: provider settings, evidence types, dependency rows, source documents, Alembic configuration, and PostgreSQL deployment configuration are already represented in the API/data model.
+The largest deferred components are pgvector retrieval, production identity, distributed queues, and notifications. The MVP preserves upgrade points: provider settings, evidence types, dependency rows, source documents, storage backends, persisted jobs, Alembic configuration, and PostgreSQL deployment configuration are already represented in the API/data model.

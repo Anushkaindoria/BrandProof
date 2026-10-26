@@ -25,6 +25,9 @@ This document explains what is built, what is incomplete, how to start the produ
 | Content passport | Approved versions receive a SHA-256 hash, dependency versions, extracted audit findings, audit engine version, reviewer, decision, and timestamp; Content History displays it. |
 | Brand Drift | Changed fact versions identify dependent approved content and mark it for revalidation. |
 | Upload baseline | `.txt`, `.md`, and text-based PDF extraction with file type, size, filename, empty-file, and extraction validation; image OCR uses optional Tesseract. |
+| Visual comparison | Administrators can approve raster assets; creators, reviewers, and administrators can compare candidates and receive a persisted similarity verdict. |
+| Evidence retrieval | Audits use deterministic lexical retrieval with exact-value and product boosts, persist retrieved evidence context, and show retrieval scores beside findings. |
+| Background audits | Content Audit can queue a persisted audit job and poll its running/completed/failed status. |
 | API | FastAPI endpoints exist for health, bootstrap, dashboard, knowledge, facts, policies, content, versions, audits, findings, reviews, passports, drift, history, and uploads. |
 | Deployment preparation | Environment configuration, Dockerfiles, Docker Compose, PostgreSQL/pgvector configuration, README, seed script, and Alembic migration lifecycle are included. |
 
@@ -37,18 +40,17 @@ This document explains what is built, what is incomplete, how to start the produ
 | Demo role selector | Creator, Reviewer, and Brand Administrator personas are sent to and enforced by the demo backend. This is demo authorization, not production authentication. |
 | OCR | The endpoint and UI are implemented with Pillow/pytesseract; Windows also needs the Tesseract executable installed for a successful OCR run. |
 | LLM configuration | The Gemini adapter, structured output validation, evidence-ID validation, and visible fallback errors are implemented; no external key was available for a live provider call. |
+| S3-compatible storage | The boto3 backend is implemented and selected with `STORAGE_BACKEND=s3`; no live bucket credentials were available for testing. |
 
 ### Production or advanced extensions deferred
 
 - Production login, account provisioning, session security, and complete multi-tenant authentication.
-- Visual logo/asset comparison with OpenCV or image embeddings.
 - pgvector semantic search and source-document chunk indexing.
-- Object storage adapter for private uploaded documents.
-- Background jobs, queues, and notifications.
+- Distributed queues and notifications.
 - Advanced asset management such as replacement history, previews, and visual comparison.
 - Signed/exportable passport bundles and richer reviewer collaboration tools.
 
-The Round 2 MVP does not claim these extensions are implemented. The core alternatives are present: local approved-asset records, a viewable passport panel, reviewer comments, and dependency-aware drift.
+The Round 2 MVP does not claim production identity, pgvector, or distributed queue features are implemented. Local comparison, lexical retrieval, storage abstraction, and persisted background jobs are implemented and tested.
 
 ---
 
@@ -446,6 +448,8 @@ The interactive API documentation is available at `http://localhost:8000/docs` w
 | GET | `/api/content/{content_id}` | Return content, versions, latest audit, and review decisions. |
 | POST | `/api/content/{content_id}/versions` | Save a new immutable content version. |
 | POST | `/api/content/{content_id}/audit` | Run the rules audit on the current version. |
+| POST | `/api/content/{content_id}/audit/jobs` | Queue a persisted background audit job. |
+| GET | `/api/audit/jobs/{job_id}` | Read pending, running, completed, or failed audit status. |
 | POST | `/api/content/{content_id}/submit` | Submit an eligible version for review. |
 | POST | `/api/content/{content_id}/review` | Approve, reject, or request changes. |
 | POST | `/api/findings/{finding_id}/resolve` | Record accept, edit, or dismiss resolution. |
@@ -457,6 +461,8 @@ The interactive API documentation is available at `http://localhost:8000/docs` w
 | POST | `/api/documents/{document_id}/approve` | Admin-approve an uploaded source document. |
 | POST | `/api/assets/upload` | Admin-upload a private brand asset with a SHA-256 checksum. |
 | POST | `/api/assets/{asset_id}/approve` | Admin-approve a brand asset. |
+| POST | `/api/assets/{asset_id}/compare` | Compare an image candidate to an approved asset and persist the verdict. |
+| GET | `/api/assets/{asset_id}/comparisons` | List persisted visual comparison results. |
 | GET | `/api/users` | Admin-list demo users and roles. |
 | PATCH | `/api/users/{user_id}/role` | Admin-change a demo user role. |
 
@@ -520,7 +526,7 @@ curl -X PATCH http://localhost:8000/api/facts/1 \
 Executed checks in this workspace:
 
 ```text
-Backend pytest: 11 passed
+Backend pytest: 14 passed
 Python compile check: passed
 Frontend TypeScript check: passed
 Next.js production build: passed
@@ -535,7 +541,7 @@ Not executed:
 - Docker build/run, because Docker is not installed in the current WSL environment.
 - Browser screenshot automation, because the available browser-control display does not have Xvfb.
 - Real PostgreSQL container integration.
-- Visual asset comparison, because upload/approval is implemented but no similarity engine is claimed.
+- Visual asset comparison against generated PNG fixtures: passed. A full browser screenshot journey was not run.
 - OCR live execution, because the Tesseract executable was not available in this environment; the endpoint and dependency path are implemented with a clear runtime error.
 
 ---
@@ -548,4 +554,4 @@ This is a hackathon MVP for a synthetic demo workspace. It should not be present
 - An approval passport records the reviewed version and evidence process; it is not a mathematical guarantee that content is true or legally compliant.
 - The demo role switch communicates personas but is not authentication.
 - Uploaded source material is not automatically approved.
-- A production deployment should add authentication, PostgreSQL migrations, persistent private storage, secrets management, provider data-retention review, monitoring, and tenant-isolation tests.
+- A production deployment should add authentication, live PostgreSQL validation, distributed queues, secrets management, provider data-retention review, monitoring, and tenant-isolation tests. Local and S3-compatible storage paths are implemented; S3 still needs real credentials for live validation.

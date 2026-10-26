@@ -20,17 +20,17 @@ The product is implemented at `frontend/app/page.tsx` with a responsive dashboar
 
 ## Technology and architecture
 
-The frontend is Next.js 16.4.3, TypeScript, React, and CSS. The backend is FastAPI, Pydantic, SQLAlchemy, pypdf, Alembic, Pillow, and pytesseract. SQLite is the zero-config default; PostgreSQL/pgvector is represented in Docker Compose for deployment-shaped environments. The audit engine uses exact structured retrieval for facts and policies, with explicit rules-only fallback and an optional Gemini adapter. Details are in `technology_and_implementation.md`.
+The frontend is Next.js 16.4.3, TypeScript, React, and CSS. The backend is FastAPI, Pydantic, SQLAlchemy, pypdf, Alembic, Pillow, pytesseract, and boto3. SQLite is the zero-config default; PostgreSQL/pgvector is represented in Docker Compose for deployment-shaped environments. The audit engine uses deterministic lexical retrieval with exact-value boosts, explicit rules-only fallback, an optional Gemini adapter, local visual comparison, and persisted background jobs. Details are in `technology_and_implementation.md`.
 
 ## AI processing and data flow
 
-The current pipeline normalizes submitted text, extracts and persists claims with positions, retrieves relevant approved facts and policies, runs deterministic validation and administrator-authored compiled rules, emits structured findings, validates evidence ownership, persists dependencies, and returns the audit to the UI. When Gemini configuration is present, a real HTTP adapter sends retrieved context for semantic suggestions, validates structured JSON, and visibly falls back on provider errors. Without a key, the UI explicitly reports rules-only mode.
+The current pipeline normalizes submitted text, extracts and persists claims with positions, retrieves relevant approved facts and policies using lexical scoring, runs deterministic validation and administrator-authored compiled rules, emits structured findings, validates evidence ownership, persists dependencies and retrieval traces, and returns the audit to the UI. Audits can run synchronously or through persisted background jobs. Approved raster assets can be compared against candidate uploads using local pixel similarity. When Gemini configuration is present, a real HTTP adapter sends retrieved context for semantic suggestions, validates structured JSON, and visibly falls back on provider errors. Without a key, the UI explicitly reports rules-only mode.
 
 ## Testing results
 
 Executed checks:
 
-- Backend `DATABASE_URL=sqlite:///./test_brandproof.db .venv/bin/pytest -q`: **11 passed**.
+- Backend `DATABASE_URL=sqlite:///./test_brandproof.db .venv/bin/pytest -q`: **14 passed**.
 - Backend `.venv/bin/python -m py_compile app/*.py tests/*.py`: **passed**.
 - Frontend `npx tsc --noEmit`: **passed**.
 - Frontend `npm run build`: **passed** after upgrading Next.js from 15.1.6 to 16.4.3 because the initial Next 15 binary produced a bus error in this environment.
@@ -45,7 +45,7 @@ Secrets remain environment-based. Uploads restrict extensions and size, use safe
 
 ## Known limitations
 
-Production authentication and tenant provisioning, visual asset comparison, semantic vector retrieval, object storage, and background jobs remain incomplete. OCR requires a separately installed Tesseract executable. The Gemini adapter exists but no live provider key was available for an external call test. SQLite is the tested local path. PostgreSQL/pgvector is deployment preparation rather than an executed environment check.
+Production authentication and tenant provisioning, pgvector retrieval, distributed queues, and notifications remain incomplete. Local visual comparison, local/S3-compatible storage, lexical retrieval, and persisted background jobs are implemented. OCR requires a separately installed Tesseract executable. The Gemini and S3 adapters exist but no live credentials were available for external call tests. SQLite is the tested local path. PostgreSQL/pgvector is deployment preparation rather than an executed environment check.
 
 ## Round 3 improvements
 

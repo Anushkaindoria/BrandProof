@@ -1,4 +1,8 @@
 import os
+import io
+import time
+
+from PIL import Image
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_brandproof.db"
 
@@ -7,6 +11,7 @@ from fastapi.testclient import TestClient
 from app.db import Base, engine
 from app.main import app
 from app.seed import seed_database
+from app.storage import LocalStorage
 
 
 def setup_module():
@@ -119,3 +124,54 @@ def test_policy_change_flags_approved_dependent_content():
         assert updated.status_code == 200
         assert updated.json()["affected_versions"] >= 1
         assert any(entry["content"]["id"] == item["id"] for entry in client.get("/api/drift").json()["items"])
+
+
+def png_bytes(color: tuple[int, int, int]) -> bytes:
+    image = Image.new("RGB", (32, 32), color)
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def test_visual_asset_comparison_persists_match_and_mismatch():
+    with TestClient(app) as client:
+        reference = client.post("/api/assets/upload", headers={"X-Demo-Role": "admin"}, files={"file": ("logo.png", png_bytes((100, 50, 200)), "image/png")})
+        assert reference.status_code == 200
+        asset_id = reference.json()["id"]
+        assert client.post(f"/api/assets/{asset_id}/approve", headers={"X-Demo-Role": "admin"}).status_code == 200
+        match = client.post(f"/api/assets/{asset_id}/compare", files={"file": ("same.png", png_bytes((100, 50, 200)), "image/png")})
+        mismatch = client.post(f"/api/assets/{asset_id}/compare", files={"file": ("different.png", png_bytes((0, 0, 0)), "image/png")})
+        assert match.status_code == 200 and match.json()["verdict"] == "match"
+        assert mismatch.status_code == 200 and mismatch.json()["verdict"] == "mismatch"
+        assert len(client.get(f"/api/assets/{asset_id}/comparisons").json()["items"]) == 2
+
+
+def test_background_audit_job_runs_and_persists_result():
+    with TestClient(app) as client:
+        item = client.post("/api/content", json={"title": "Async audit", "content_type": "Advertisement", "context": "NovaTech X1", "text": "NovaTech X1 has a 7000 mAh battery."}).json()
+        queued = client.post(f"/api/content/{item['id']}/audit/jobs")
+        assert queued.status_code == 200
+        job_id = queued.json()["id"]
+        status = queued.json()["status"]
+        for _ in range(30):
+            status_response = client.get(f"/api/audit/jobs/{job_id}")
+            assert status_response.status_code == 200
+            status = status_response.json()["status"]
+            if status in {"completed", "failed"}:
+                break
+            time.sleep(0.05)
+        assert status == "completed"
+        assert status_response.json()["audit_run_id"] is not None
+        content = client.get(f"/api/content/{item['id']}").json()
+        assert content["current_version"]["audit"]["retrieval_mode"] == "lexical"
+        assert content["current_version"]["audit"]["retrieved_context"]
+
+
+def test_local_storage_rejects_path_traversal(tmp_path):
+    storage = LocalStorage(str(tmp_path))
+    try:
+        storage.put("../outside.txt", b"secret")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Storage accepted a path traversal key")

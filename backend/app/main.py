@@ -2,7 +2,9 @@ import json
 import hashlib
 import re
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
@@ -22,6 +24,8 @@ from .models import (
     ApprovalRecord,
     AuditEvent,
     AuditRun,
+    AuditJob,
+    AssetComparison,
     BrandAsset,
     ContentItem,
     ContentStatus,
@@ -39,9 +43,12 @@ from .models import (
 )
 from .schemas import ContentCreate, FactCreate, FactUpdate, PolicyCreate, PolicyUpdate, ResolveCreate, ReviewCreate, RoleUpdate, TerminologyCreate, TerminologyUpdate, VersionCreate, finding_dict
 from .seed import seed_database
+from .retrieval import retrieve_context
+from .storage import get_storage
 
 
 app = FastAPI(title="BrandProof AI API", version="0.2.0")
+audit_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="brandproof-audit")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin.strip() for origin in settings.cors_origins.split(",")],
@@ -55,7 +62,10 @@ app.add_middleware(
 def startup():
     if settings.demo_mode and settings.database_url.startswith("sqlite"):
         inspector = inspect(engine)
-        if inspector.has_table("audit_runs") and "provider_error" not in {column["name"] for column in inspector.get_columns("audit_runs")}:
+        audit_columns = {column["name"] for column in inspector.get_columns("audit_runs")} if inspector.has_table("audit_runs") else set()
+        source_columns = {column["name"] for column in inspector.get_columns("source_documents")} if inspector.has_table("source_documents") else set()
+        required_tables = {"asset_comparisons", "audit_jobs"}
+        if inspector.has_table("audit_runs") and ({"provider_error", "retrieval_mode", "retrieved_context"} - audit_columns or "storage_key" not in source_columns or not required_tables.issubset(set(inspector.get_table_names()))):
             seed_database(reset=True)
             return
     Base.metadata.create_all(bind=engine)
@@ -99,11 +109,9 @@ def serialize_asset(asset: BrandAsset) -> dict:
     return {"id": asset.id, "filename": asset.filename, "asset_type": asset.asset_type, "mime_type": asset.mime_type, "checksum": asset.checksum, "status": asset.status, "version": asset.version, "active": asset.active, "created_at": asset.created_at.isoformat()}
 
 
-def safe_storage_path(org_id: int, filename: str) -> Path:
+def safe_storage_key(org_id: int, filename: str) -> str:
     suffix = Path(filename).suffix.lower()
-    root = Path(settings.storage_dir).resolve() / str(org_id)
-    root.mkdir(parents=True, exist_ok=True)
-    return root / f"{uuid.uuid4().hex}{suffix}"
+    return f"{org_id}/{uuid.uuid4().hex}{suffix}"
 
 
 def serialize_claim(claim: ExtractedClaim) -> dict:
@@ -119,7 +127,7 @@ def serialize_version(db: Session, version: ContentVersion) -> dict:
 def serialize_audit(audit: AuditRun | None) -> dict | None:
     if not audit:
         return None
-    return {"id": audit.id, "engine_version": audit.engine_version, "provider_mode": audit.provider_mode, "provider_error": audit.provider_error, "overall_status": audit.overall_status, "created_at": audit.created_at.isoformat(), "claims": [serialize_claim(item) for item in audit.claims], "findings": [finding_dict(item) for item in audit.findings]}
+    return {"id": audit.id, "engine_version": audit.engine_version, "provider_mode": audit.provider_mode, "provider_error": audit.provider_error, "retrieval_mode": audit.retrieval_mode, "retrieved_context": json.loads(audit.retrieved_context or "[]"), "overall_status": audit.overall_status, "created_at": audit.created_at.isoformat(), "claims": [serialize_claim(item) for item in audit.claims], "findings": [finding_dict(item) for item in audit.findings]}
 
 
 def serialize_item(db: Session, item: ContentItem) -> dict:
@@ -146,6 +154,7 @@ def save_audit(db: Session, item: ContentItem, version: ContentVersion, org: Org
     facts = list(db.scalars(select(ApprovedFact).where(ApprovedFact.organization_id == org.id, ApprovedFact.active.is_(True))))
     policies = list(db.scalars(select(Policy).where(Policy.organization_id == org.id, Policy.active.is_(True))))
     terminology = list(db.scalars(select(Terminology).where(Terminology.organization_id == org.id, Terminology.active.is_(True))))
+    retrieved = retrieve_context(version.text, facts, policies)
     drafts = run_rules_audit(version.text, facts, policies, terminology)
     provider_error = ""
     provider_mode = "rules-only"
@@ -166,7 +175,7 @@ def save_audit(db: Session, item: ContentItem, version: ContentVersion, org: Org
         provider_mode = f"{settings.llm_provider}-not-supported-fallback"
         provider_error = f"Configured provider '{settings.llm_provider}' has no adapter; deterministic rules were used."
     unresolved = [draft for draft in drafts if draft.verification_status != "Supported"]
-    audit = AuditRun(content_version_id=version.id, provider_mode=provider_mode, provider_error=provider_error, overall_status="changes_required" if unresolved else "passed")
+    audit = AuditRun(content_version_id=version.id, provider_mode=provider_mode, provider_error=provider_error, retrieval_mode="lexical", retrieved_context=json.dumps([item.__dict__ for item in retrieved]), overall_status="changes_required" if unresolved else "passed")
     db.add(audit)
     db.flush()
     for sentence_match in re.finditer(r"[^.!?]+[.!?]?", version.text):
@@ -191,6 +200,38 @@ def save_audit(db: Session, item: ContentItem, version: ContentVersion, org: Org
     db.commit()
     db.refresh(audit)
     return audit
+
+
+def run_audit_job(job_id: int) -> None:
+    db = SessionLocal()
+    try:
+        job = db.get(AuditJob, job_id)
+        if not job:
+            return
+        job.status = "running"
+        job.updated_at = datetime.utcnow()
+        db.commit()
+        org = db.get(Organization, job.organization_id)
+        item = db.get(ContentItem, job.content_item_id)
+        if not org or not item or not item.current_version_id:
+            raise ValueError("Audit target no longer exists")
+        version = db.get(ContentVersion, item.current_version_id)
+        audit = save_audit(db, item, version, org)
+        job = db.get(AuditJob, job_id)
+        job.status = "completed"
+        job.audit_run_id = audit.id
+        job.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        job = db.get(AuditJob, job_id)
+        if job:
+            job.status = "failed"
+            job.error = str(exc)
+            job.updated_at = datetime.utcnow()
+            db.commit()
+    finally:
+        db.close()
 
 
 @app.get("/api/health")
@@ -437,6 +478,30 @@ def audit_content(content_id: int, role: str | None = Header(default=None, alias
     return {"content": serialize_item(db, item), "audit": serialize_audit(audit)}
 
 
+@app.post("/api/content/{content_id}/audit/jobs")
+def queue_audit(content_id: int, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    actor = require_role(db, role, {"creator", "reviewer", "admin"}, default_role="creator")
+    org = demo_org(db)
+    item = db.get(ContentItem, content_id)
+    if not item or item.organization_id != org.id or not item.current_version_id:
+        raise HTTPException(status_code=404, detail="Content version not found")
+    job = AuditJob(organization_id=org.id, content_item_id=item.id, requested_by=actor.id, status="pending")
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    audit_executor.submit(run_audit_job, job.id)
+    return {"id": job.id, "status": job.status, "content_id": item.id, "created_at": job.created_at.isoformat()}
+
+
+@app.get("/api/audit/jobs/{job_id}")
+def get_audit_job(job_id: int, db: Session = Depends(get_db)):
+    org = demo_org(db)
+    job = db.get(AuditJob, job_id)
+    if not job or job.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Audit job not found")
+    return {"id": job.id, "status": job.status, "content_id": job.content_item_id, "audit_run_id": job.audit_run_id, "error": job.error, "created_at": job.created_at.isoformat(), "updated_at": job.updated_at.isoformat()}
+
+
 @app.post("/api/content/{content_id}/submit")
 def submit_content(content_id: int, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
     require_role(db, role, {"creator", "admin"}, default_role="creator")
@@ -567,7 +632,12 @@ async def upload_content(file: UploadFile = File(...), role: str | None = Header
         raise HTTPException(status_code=422, detail="The uploaded file contains no extractable text")
     org = demo_org(db)
     page_reference = f"Pages 1-{page_count}" if page_count else "Extracted text"
-    document = SourceDocument(organization_id=org.id, filename=Path(file.filename).name, excerpt=text[:1000], page_reference=page_reference, status="unreviewed")
+    storage_key = safe_storage_key(org.id, Path(file.filename).name)
+    try:
+        get_storage().put(storage_key, raw, file.content_type or "application/octet-stream")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    document = SourceDocument(organization_id=org.id, filename=Path(file.filename).name, excerpt=text[:1000], page_reference=page_reference, storage_key=storage_key, status="unreviewed")
     db.add(document)
     db.commit()
     return {"filename": document.filename, "text": text, "document_id": document.id, "status": "unreviewed"}
@@ -596,13 +666,71 @@ async def upload_asset(file: UploadFile = File(...), asset_type: str = "logo", r
     if len(raw) > settings.max_upload_bytes:
         raise HTTPException(status_code=413, detail="Asset exceeds the 10 MB demo limit")
     org = demo_org(db)
-    destination = safe_storage_path(org.id, Path(file.filename).name)
-    destination.write_bytes(raw)
-    asset = BrandAsset(organization_id=org.id, filename=Path(file.filename).name, asset_type=asset_type, storage_key=str(destination.relative_to(Path(settings.storage_dir).resolve())), mime_type=file.content_type or "application/octet-stream", checksum=hashlib.sha256(raw).hexdigest(), status="unreviewed")
+    storage_key = safe_storage_key(org.id, Path(file.filename).name)
+    try:
+        get_storage().put(storage_key, raw, file.content_type or "application/octet-stream")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    asset = BrandAsset(organization_id=org.id, filename=Path(file.filename).name, asset_type=asset_type, storage_key=storage_key, mime_type=file.content_type or "application/octet-stream", checksum=hashlib.sha256(raw).hexdigest(), status="unreviewed")
     db.add(asset)
     db.commit()
     db.refresh(asset)
     return serialize_asset(asset)
+
+
+def image_similarity(reference: bytes, candidate: bytes) -> tuple[float, str]:
+    try:
+        from PIL import Image, ImageChops, ImageStat
+        reference_image = Image.open(BytesIO(reference)).convert("RGB")
+        candidate_image = Image.open(BytesIO(candidate)).convert("RGB")
+    except Exception as exc:
+        raise ValueError(f"Both files must be readable raster images: {exc}") from exc
+    reference_image.thumbnail((128, 128))
+    candidate_image = candidate_image.resize(reference_image.size)
+    difference = ImageChops.difference(reference_image, candidate_image)
+    mean_error = sum(ImageStat.Stat(difference).mean) / 3
+    similarity = max(0.0, min(1.0, 1.0 - mean_error / 255.0))
+    verdict = "match" if similarity >= 0.92 else "review" if similarity >= 0.70 else "mismatch"
+    return round(similarity, 4), verdict
+
+
+@app.post("/api/assets/{asset_id}/compare")
+async def compare_asset(asset_id: int, file: UploadFile = File(...), role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    require_role(db, role, {"admin", "creator", "reviewer"}, default_role="creator")
+    org = demo_org(db)
+    reference = db.get(BrandAsset, asset_id)
+    if not reference or reference.organization_id != org.id or reference.status != "approved":
+        raise HTTPException(status_code=409, detail="Only an approved asset in this workspace can be compared")
+    if Path(reference.filename).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=422, detail="The approved reference must be a PNG, JPG, or WEBP asset")
+    if not file.filename or Path(file.filename).suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=415, detail="Visual comparison supports PNG, JPG, and WEBP files")
+    candidate = await file.read()
+    if len(candidate) > settings.max_upload_bytes:
+        raise HTTPException(status_code=413, detail="Candidate asset exceeds the 10 MB demo limit")
+    try:
+        reference_bytes = get_storage().get(reference.storage_key)
+        similarity, verdict = image_similarity(reference_bytes, candidate)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Approved asset bytes are unavailable") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    comparison = AssetComparison(organization_id=org.id, reference_asset_id=reference.id, candidate_filename=Path(file.filename).name, candidate_checksum=hashlib.sha256(candidate).hexdigest(), similarity=similarity, verdict=verdict, details="Local pixel comparison after RGB normalization and 128px thumbnail scaling.")
+    db.add(comparison)
+    db.commit()
+    db.refresh(comparison)
+    return {"id": comparison.id, "reference_asset_id": reference.id, "candidate_filename": comparison.candidate_filename, "similarity": comparison.similarity, "verdict": comparison.verdict, "details": comparison.details, "created_at": comparison.created_at.isoformat()}
+
+
+@app.get("/api/assets/{asset_id}/comparisons")
+def asset_comparisons(asset_id: int, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    require_role(db, role, {"admin", "creator", "reviewer"}, default_role="creator")
+    org = demo_org(db)
+    asset = db.get(BrandAsset, asset_id)
+    if not asset or asset.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Brand asset not found")
+    comparisons = db.scalars(select(AssetComparison).where(AssetComparison.organization_id == org.id, AssetComparison.reference_asset_id == asset.id).order_by(AssetComparison.created_at.desc())).all()
+    return {"items": [{"id": item.id, "candidate_filename": item.candidate_filename, "similarity": item.similarity, "verdict": item.verdict, "details": item.details, "created_at": item.created_at.isoformat()} for item in comparisons]}
 
 
 @app.post("/api/assets/{asset_id}/approve")
