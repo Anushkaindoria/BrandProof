@@ -55,8 +55,11 @@ if errorlevel 1 (
 :python_ready
 
 echo Checking backend dependencies...
-"%PYTHON%" -c "import fastapi, uvicorn, sqlalchemy, pydantic_settings, pypdf, psycopg" >nul 2>&1
-if errorlevel 1 (
+pushd "%BACKEND%"
+"%PYTHON%" -c "from app.main import app" >nul 2>&1
+set "BACKEND_CHECK=%errorlevel%"
+popd
+if not "%BACKEND_CHECK%"=="0" (
     echo Installing backend dependencies. This may take a few minutes...
     "%PYTHON%" -m pip install -r "%BACKEND%\requirements.txt"
     if errorlevel 1 (
@@ -64,6 +67,16 @@ if errorlevel 1 (
         pause
         exit /b 1
     )
+    pushd "%BACKEND%"
+    "%PYTHON%" -c "from app.main import app" >nul 2>&1
+    if errorlevel 1 (
+        popd
+        echo ERROR: Backend dependencies installed, but the application still cannot import.
+        echo Close this window and check the backend error details.
+        pause
+        exit /b 1
+    )
+    popd
 )
 
 if not exist "%FRONTEND%\node_modules" (
