@@ -1,6 +1,8 @@
 import os
 import io
 import time
+import json
+from unittest.mock import patch, MagicMock
 
 from PIL import Image
 
@@ -12,6 +14,7 @@ from app.db import Base, engine
 from app.main import app
 from app.seed import seed_database
 from app.storage import LocalStorage
+from app.config import settings
 
 
 def setup_module():
@@ -175,3 +178,88 @@ def test_local_storage_rejects_path_traversal(tmp_path):
         pass
     else:
         raise AssertionError("Storage accepted a path traversal key")
+
+
+def test_health_endpoint_includes_provider_status():
+    """Health endpoint returns provider mode and model when configured."""
+    with TestClient(app) as client:
+        # Test default (rules-only)
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["service"] == "brandproof-api"
+        assert "mode" in data
+        assert "llm_provider" in data
+        assert "llm_model" in data
+        # Default is rules-only
+        assert data["llm_provider"] == "rules-only"
+        assert data["llm_model"] is None
+
+
+def test_audit_with_llm_provider_enabled_merges_findings():
+    """When LLM provider is configured, audit merges LLM findings with rules findings."""
+    mock_gemini_response = {
+        "candidates": [{
+            "content": {
+                "parts": [{
+                    "text": json.dumps({
+                        "findings": [{
+                            "issue_key": "tone-promotional",
+                            "category": "Tone",
+                            "severity": "medium",
+                            "claim_text": "Enjoy a 7000 mAh battery",
+                            "explanation": "The tone is overly promotional for a factual claim.",
+                            "verification_status": "Needs interpretation",
+                            "suggested_correction": "The NovaTech X1 includes a 5000 mAh battery.",
+                            "confidence": "medium",
+                            "evidence_type": "fact",
+                            "evidence_id": 1
+                        }]
+                    })
+                }]
+            }
+        }]
+    }
+
+    with patch("app.main.call_gemini") as mock_call_gemini, \
+         patch.object(settings, "llm_api_key", "test-key"), \
+         patch.object(settings, "llm_provider", "gemini"):
+        from app.ai import AIFinding
+        mock_call_gemini.return_value = [
+            AIFinding(
+                issue_key="tone-promotional",
+                category="Tone",
+                severity="medium",
+                claim_text="Enjoy a 7000 mAh battery",
+                explanation="The tone is overly promotional for a factual claim.",
+                verification_status="Needs interpretation",
+                suggested_correction="The NovaTech X1 includes a 5000 mAh battery.",
+                confidence="medium",
+                evidence_type="fact",
+                evidence_id=1
+            )
+        ]
+
+        with TestClient(app) as client:
+            # Create content with seeded demo data
+            item = client.post("/api/content", json={
+                "title": "LLM Audit Test",
+                "content_type": "Advertisement",
+                "context": "NovaTech X1",
+                "text": "Meet the NovaTech X1! Enjoy a 7000 mAh battery and completely waterproof protection."
+            }).json()
+
+            # Run audit
+            response = client.post(f"/api/content/{item['id']}/audit")
+            assert response.status_code == 200
+
+            audit_data = response.json()["audit"]
+            # Provider mode should indicate gemini was used (or fallback)
+            assert "provider_mode" in audit_data
+            # Should have both rules findings (battery-mismatch, waterproof-unsupported)
+            # and the mocked LLM finding (tone-promotional)
+            finding_keys = {f["issue_key"] for f in audit_data["findings"]}
+            assert "battery-mismatch" in finding_keys  # From rules
+            assert "waterproof-unsupported" in finding_keys  # From rules
+            assert "tone-promotional" in finding_keys  # From mocked LLM

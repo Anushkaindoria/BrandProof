@@ -63,8 +63,16 @@ def call_gemini(text: str, facts: list[ApprovedFact], policies: list[Policy]) ->
         "{\"findings\":[{\"issue_key\":...,\"category\":...,\"severity\":\"low|medium|high\","
         "\"claim_text\":...,\"explanation\":...,\"verification_status\":\"Supported|Contradicted|Insufficient evidence|Needs interpretation\","
         "\"suggested_correction\":...,\"confidence\":\"low|medium|high\",\"evidence_type\":\"fact|policy|null\",\"evidence_id\":number|null}]} . "
-        "Do not invent evidence IDs. Focus on tone, contextual interpretation, unsupported promotional language, and messaging alignment; "
-        "do not duplicate obvious exact numerical checks.\n\nRETRIEVED CONTEXT:\n" + _context(facts, policies)
+        "Review the content for: (1) Tone: exaggerated, promotional or off-brand language; "
+        "(2) Terminology: product or brand terms that differ from the approved terms; "
+        "(3) Accessibility: vague wording, all-caps text, jargon, or meaning carried only by emojis or symbols; "
+        "(4) Policy: violations of the listed POLICY items. "
+        "The category must be one of Tone, Terminology, Accessibility, Policy. "
+        "Use severity high only for policy or factual risk; otherwise low or medium. "
+        "For every finding, explain in one sentence why it is an issue, and make suggested_correction a rewritten compliant version of claim_text. "
+        "Set evidence_type and evidence_id only from the retrieved context and never invent IDs. "
+        "Do not duplicate exact numerical or required-phrase checks. Return {\"findings\":[]} if nothing is wrong."
+        "\n\nRETRIEVED CONTEXT:\n" + _context(facts, policies)
     )
     body = {"system_instruction": {"parts": [{"text": system}]}, "contents": [{"role": "user", "parts": [{"text": f"Review this submitted content:\n{text}"}]}], "generationConfig": {"responseMimeType": "application/json", "temperature": 0.1}}
     request = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}, method="POST")

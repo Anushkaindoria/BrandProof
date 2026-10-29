@@ -236,7 +236,13 @@ def run_audit_job(job_id: int) -> None:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "brandproof-api", "mode": "demo" if settings.demo_mode else "configured"}
+    return {
+        "status": "ok",
+        "service": "brandproof-api",
+        "mode": "demo" if settings.demo_mode else "configured",
+        "llm_provider": settings.llm_provider if settings.llm_api_key else "rules-only",
+        "llm_model": settings.llm_model if settings.llm_api_key else None,
+    }
 
 
 @app.get("/api/bootstrap")
