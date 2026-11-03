@@ -1,0 +1,376 @@
+{
+ "claims": [
+  {
+   "text": "The NovaTech X1 includes a 5000 mAh battery.",
+   "label": "correct",
+   "hard": false,
+   "id": "c01"
+  },
+  {
+   "text": "NovaTech X1 comes with a 1 year warranty.",
+   "label": "correct",
+   "hard": false,
+   "id": "c02"
+  },
+  {
+   "text": "Enjoy a 6.1 inches display on the NovaTech X1.",
+   "label": "correct",
+   "hard": false,
+   "id": "c03"
+  },
+  {
+   "text": "Charge at 65 W with the included charger.",
+   "label": "correct",
+   "hard": false,
+   "id": "c04"
+  },
+  {
+   "text": "Meet the NovaTech X1.",
+   "label": "correct",
+   "hard": false,
+   "id": "c05"
+  },
+  {
+   "text": "Available in three colours this autumn.",
+   "label": "correct",
+   "hard": false,
+   "id": "c06"
+  },
+  {
+   "text": "A simple setup gets you started in minutes.",
+   "label": "correct",
+   "hard": false,
+   "id": "c07"
+  },
+  {
+   "text": "Designed for everyday use.",
+   "label": "correct",
+   "hard": false,
+   "id": "c08"
+  },
+  {
+   "text": "Water resistance is not officially certified, so keep it dry.",
+   "label": "correct",
+   "hard": false,
+   "id": "c09"
+  },
+  {
+   "text": "The X1 ships with a USB-C cable.",
+   "label": "correct",
+   "hard": false,
+   "id": "c10"
+  },
+  {
+   "text": "Our team built the X1 in Bengaluru.",
+   "label": "correct",
+   "hard": false,
+   "id": "c11"
+  },
+  {
+   "text": "Backed by a 1 year limited warranty.",
+   "label": "correct",
+   "hard": false,
+   "id": "c12"
+  },
+  {
+   "text": "Includes a 5000 mAh battery and a 1 year warranty.",
+   "label": "correct",
+   "hard": false,
+   "id": "c13"
+  },
+  {
+   "text": "Meet the NovaTech X1 with a 6.1-inch screen.",
+   "label": "correct",
+   "hard": false,
+   "id": "c14"
+  },
+  {
+   "text": "Order today and get free shipping on the NovaTech X1.",
+   "label": "correct",
+   "hard": false,
+   "id": "c15"
+  },
+  {
+   "text": "The camera app has a new portrait mode.",
+   "label": "correct",
+   "hard": false,
+   "id": "c16"
+  },
+  {
+   "text": "Fast 65 W charging is included in the box.",
+   "label": "correct",
+   "hard": false,
+   "id": "c17"
+  },
+  {
+   "text": "A 5000-mAh battery keeps you going.",
+   "label": "correct",
+   "hard": false,
+   "id": "c18"
+  },
+  {
+   "text": "Learn more at novatech.example.",
+   "label": "correct",
+   "hard": false,
+   "id": "c19"
+  },
+  {
+   "text": "Everyday protection for everyday moments.",
+   "label": "correct",
+   "hard": false,
+   "id": "c20"
+  },
+  {
+   "text": "Enjoy a 7000 mAh battery.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c21"
+  },
+  {
+   "text": "NovaTech X1 has a 4500 mAh battery.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c22"
+  },
+  {
+   "text": "Comes with a 2 year warranty.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c23"
+  },
+  {
+   "text": "Includes a 3 year warranty on every X1.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c24"
+  },
+  {
+   "text": "A stunning 6.7-inch display.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c25"
+  },
+  {
+   "text": "Enjoy a 6.7 inches screen.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c26"
+  },
+  {
+   "text": "Charges at 120 W.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c27"
+  },
+  {
+   "text": "Super fast 100 W charging.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c28"
+  },
+  {
+   "text": "Meet the NovaTech X1 with a 6000 mAh battery and a 1 year warranty.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c29"
+  },
+  {
+   "text": "NovaTech X1: 5500 mAh of power.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c30"
+  },
+  {
+   "text": "Warranty: 5 years.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c31"
+  },
+  {
+   "text": "An 8-inch display for immersive viewing.",
+   "label": "wrong_fact",
+   "hard": false,
+   "id": "c32"
+  },
+  {
+   "text": "Lasts all day on seven thousand milliamp hours.",
+   "label": "wrong_fact",
+   "hard": true,
+   "id": "c33"
+  },
+  {
+   "text": "Battery: 7000 milliamp-hours.",
+   "label": "wrong_fact",
+   "hard": true,
+   "id": "c34"
+  },
+  {
+   "text": "Two year warranty included.",
+   "label": "wrong_fact",
+   "hard": true,
+   "id": "c35"
+  },
+  {
+   "text": "Fully covered for 24 months.",
+   "label": "wrong_fact",
+   "hard": true,
+   "id": "c36"
+  },
+  {
+   "text": "Completely waterproof protection.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c37"
+  },
+  {
+   "text": "The NovaTech X1 is fully waterproof.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c38"
+  },
+  {
+   "text": "Take it swimming, it's waterproof.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c39"
+  },
+  {
+   "text": "The best phone ever!",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c40"
+  },
+  {
+   "text": "Guaranteed to last a lifetime.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c41"
+  },
+  {
+   "text": "Guaranteed delivery in one day.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c42"
+  },
+  {
+   "text": "Number one smartphone in India.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c43"
+  },
+  {
+   "text": "Water-resistant design for the rain.",
+   "label": "unsupported_claim",
+   "hard": false,
+   "id": "c44"
+  },
+  {
+   "text": "Survives a dive in the pool without a scratch.",
+   "label": "unsupported_claim",
+   "hard": true,
+   "id": "c45"
+  },
+  {
+   "text": "Rated for underwater use.",
+   "label": "unsupported_claim",
+   "hard": true,
+   "id": "c46"
+  },
+  {
+   "text": "Clinically proven to improve your sleep.",
+   "label": "unsupported_claim",
+   "hard": true,
+   "id": "c47"
+  },
+  {
+   "text": "The most trusted phone brand in the country.",
+   "label": "unsupported_claim",
+   "hard": true,
+   "id": "c48"
+  },
+  {
+   "text": "Voted phone of the year by experts.",
+   "label": "unsupported_claim",
+   "hard": true,
+   "id": "c49"
+  },
+  {
+   "text": "Tested to survive a drop from ten metres.",
+   "label": "unsupported_claim",
+   "hard": true,
+   "id": "c50"
+  },
+  {
+   "text": "Revolutionary technology.",
+   "label": "exaggeration",
+   "hard": false,
+   "id": "c51"
+  },
+  {
+   "text": "The greatest battery ever.",
+   "label": "exaggeration",
+   "hard": false,
+   "id": "c52"
+  },
+  {
+   "text": "Absolutely the best phone you will ever own.",
+   "label": "exaggeration",
+   "hard": false,
+   "id": "c53"
+  },
+  {
+   "text": "World's best camera.",
+   "label": "exaggeration",
+   "hard": false,
+   "id": "c54"
+  },
+  {
+   "text": "#1 choice for creators.",
+   "label": "exaggeration",
+   "hard": false,
+   "id": "c55"
+  },
+  {
+   "text": "A revolutionary design.",
+   "label": "exaggeration",
+   "hard": false,
+   "id": "c56"
+  },
+  {
+   "text": "Unbeatable performance that crushes every rival.",
+   "label": "exaggeration",
+   "hard": true,
+   "id": "c57"
+  },
+  {
+   "text": "Mind-blowing speed like nothing else on earth.",
+   "label": "exaggeration",
+   "hard": true,
+   "id": "c58"
+  },
+  {
+   "text": "Insanely powerful and flawless in every way.",
+   "label": "exaggeration",
+   "hard": true,
+   "id": "c59"
+  },
+  {
+   "text": "You will never need another phone again.",
+   "label": "exaggeration",
+   "hard": true,
+   "id": "c60"
+  },
+  {
+   "text": "AMAZING!!! BUY NOW!!!",
+   "label": "exaggeration",
+   "hard": true,
+   "id": "c61"
+  },
+  {
+   "text": "Absolutely incredible, life-changing performance.",
+   "label": "exaggeration",
+   "hard": true,
+   "id": "c62"
+  }
+ ]
+}

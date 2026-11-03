@@ -116,7 +116,7 @@ class ContentVersion(Base):
     version_number: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
     content_hash: Mapped[str] = mapped_column(String(64))
-    created_by: Mapped[str] = mapped_column(String(120), default="Demo Creator")
+    created_by: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     content_item: Mapped[ContentItem] = relationship(foreign_keys=[content_item_id], back_populates="versions")
     audit_runs: Mapped[list["AuditRun"]] = relationship(back_populates="content_version", cascade="all, delete-orphan")
@@ -165,6 +165,8 @@ class Finding(Base):
     confidence: Mapped[str] = mapped_column(String(30), default="medium")
     resolution_status: Mapped[str] = mapped_column(String(30), default="open")
     resolution_reason: Mapped[str] = mapped_column(Text, default="")
+    resolved_by: Mapped[str] = mapped_column(String(120), default="")
+    origin: Mapped[str] = mapped_column(String(20), default="rules")
     evidence_type: Mapped[str] = mapped_column(String(30), default="fact")
     evidence_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_label: Mapped[str] = mapped_column(String(255), default="")
@@ -252,6 +254,25 @@ class AuditJob(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class ProposedItem(Base):
+    """A fact, term or policy proposed from a source document. Not evidence until an admin approves it."""
+
+    __tablename__ = "proposed_items"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"), index=True)
+    source_document_id: Mapped[int] = mapped_column(ForeignKey("source_documents.id"), index=True)
+    item_type: Mapped[str] = mapped_column(String(20))
+    payload: Mapped[str] = mapped_column(Text, default="{}")
+    quote: Mapped[str] = mapped_column(Text, default="")
+    page_reference: Mapped[str] = mapped_column(String(80), default="")
+    method: Mapped[str] = mapped_column(String(30), default="rules")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    decided_by: Mapped[str] = mapped_column(String(120), default="")
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    resulting_record_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class UserRoleEvent(Base):

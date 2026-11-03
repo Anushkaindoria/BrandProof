@@ -119,7 +119,7 @@ def test_policy_change_flags_approved_dependent_content():
         target_findings = audit.json()["audit"]["findings"]
         assert any(finding["evidence"]["id"] == policy.json()["id"] for finding in target_findings)
         for finding in target_findings:
-            resolved = client.post(f"/api/findings/{finding['id']}/resolve", json={"action": "accept", "reason": "Reviewed by creator"})
+            resolved = client.post(f"/api/findings/{finding['id']}/resolve", headers={"X-Demo-Role": "reviewer"}, json={"action": "accept", "reason": "Reviewed by reviewer"})
             assert resolved.status_code == 200
         assert client.post(f"/api/content/{item['id']}/submit").status_code == 200
         assert client.post(f"/api/content/{item['id']}/review", headers={"X-Demo-Role": "reviewer"}, json={"decision": "approve", "comment": "Policy dependency recorded."}).status_code == 200
