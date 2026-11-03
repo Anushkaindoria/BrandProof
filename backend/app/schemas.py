@@ -75,6 +75,18 @@ class ResolveCreate(BaseModel):
     corrected_text: str | None = None
 
 
+class RewriteRequest(BaseModel):
+    # Rewrite this text instead of the saved version (lets the UI rewrite unsaved edits).
+    text: str | None = None
+    # Ids of the proposed changes the creator accepted; omit to apply every change.
+    accept: list[str] | None = None
+
+
+class ProposalApprove(BaseModel):
+    # Optional admin edits to the proposed fields before approval.
+    payload: dict[str, Any] | None = None
+
+
 def iso(value: datetime | None) -> str | None:
     return value.isoformat() if value else None
 
@@ -92,6 +104,8 @@ def finding_dict(finding: Any) -> dict[str, Any]:
         "confidence": finding.confidence,
         "resolution_status": finding.resolution_status,
         "resolution_reason": finding.resolution_reason,
+        "resolved_by": getattr(finding, "resolved_by", "") or "",
+        "origin": getattr(finding, "origin", "rules") or "rules",
         "evidence": {
             "type": finding.evidence_type,
             "id": finding.evidence_id,

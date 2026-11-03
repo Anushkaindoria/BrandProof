@@ -59,3 +59,27 @@ h3 { font-size: 14px; }
 .drift-item { border: 1px solid #efc8c1; background: #fff7f4; border-radius: 12px; padding: 15px; margin-top: 11px; }.drift-item h3 { color: #9d4037; }.drift-item p { color: #6c5a5a; font-size: 12px; margin-top: 7px; }.drift-change { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 11px; }.drift-change span { background: #fff; border: 1px solid #f0d7d2; border-radius: 7px; padding: 7px 9px; font-size: 11px; }
 @media (max-width: 1050px) { .sidebar { width: 210px; }.main-content, .topbar { padding-left: 24px; padding-right: 24px; }.metric-grid { grid-template-columns: repeat(2, 1fr); }.split, .audit-layout { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .app-shell { display: block; }.sidebar { width: 100%; padding: 15px; gap: 12px; }.nav { grid-template-columns: repeat(4, 1fr); }.nav button { justify-content: center; padding: 9px; font-size: 10px; }.nav button span { display: none; }.workspace, .side-footer { display: none; }.topbar { height: 62px; padding: 0 15px; }.main-content { padding: 25px 15px; }.hero { display: block; }.demo-pill { display: inline-block; margin-top: 16px; }.metric-grid, .knowledge-grid, .mini-grid, .passport-grid { grid-template-columns: 1fr; }.table { min-width: 650px; }.table-wrap { overflow-x: auto; }.role-switch span { display: none; }.two-fields { grid-template-columns: 1fr; } }
+
+.origin-chip { display: inline-block; margin-left: 8px; font-size: 9px; padding: 3px 7px; border-radius: 100px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; background: #f1eee9; color: #6b6677; vertical-align: 1px; }
+.origin-chip.ai { background: var(--lavender); color: var(--purple-dark); }
+.gate-note { color: #9d4037; font-size: 11px; line-height: 1.4; }
+.rewrite-panel { border: 1px solid #cfc6ff; background: #fbfaff; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.rewrite-panel .card-header { margin-bottom: 12px; }
+.rewrite-meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+.rewrite-meta .origin-chip { margin-left: 0; }
+.verify-pill { font-size: 11px; font-weight: 700; padding: 4px 9px; border-radius: 100px; }
+.verify-pill.ok { background: var(--mint); color: #1f6b46; }.verify-pill.bad { background: var(--red); color: #9d4037; }
+.change-row { display: flex; gap: 11px; align-items: flex-start; border: 1px solid var(--line); background: white; border-radius: 10px; padding: 11px 12px; margin-bottom: 8px; cursor: pointer; }
+.change-row.off { opacity: .55; }.change-row input { margin-top: 3px; accent-color: var(--purple); }
+.change-diff { font-size: 13px; line-height: 1.5; }.change-reason { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; margin-top: 4px; }
+.diff-del { background: #ffe3de; color: #9d4037; text-decoration: line-through; border-radius: 4px; padding: 1px 5px; }
+.diff-add { background: #dff4e8; color: #1f6b46; border-radius: 4px; padding: 1px 5px; font-weight: 600; }
+.verify-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }.verify-row small { color: var(--muted); font-size: 11px; }
+.verify-box { border-radius: 10px; padding: 12px 14px; margin-top: 12px; font-size: 12px; display: grid; gap: 7px; }
+.verify-box.ok { background: var(--mint); border: 1px solid #b8e3cb; }.verify-box.bad { background: var(--red); border: 1px solid #efc8c1; }
+.verify-line { display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; }.verify-line svg { flex: none; margin-top: 2px; }
+.extract-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }.extract-row select { flex: 1; min-width: 200px; border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; background: white; }
+.proposal { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-top: 11px; background: #fffdfa; }
+.proposal-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 9px; }.proposal-top small { color: var(--muted); font-size: 11px; }
+.proposal-fields { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 13px; }.proposal-fields input { border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 160px; background: white; }
+.proposal-quote { margin: 10px 0; padding: 9px 12px; border-left: 3px solid var(--purple); background: #f6f3ff; color: #4a4560; font-size: 12px; line-height: 1.5; border-radius: 0 8px 8px 0; }

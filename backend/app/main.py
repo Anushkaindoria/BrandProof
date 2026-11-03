@@ -9,15 +9,17 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pypdf import PdfReader
-from sqlalchemy import func, select
-from sqlalchemy import inspect
+from pydantic import ValidationError
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
-from .audit import FindingDraft, run_rules_audit
-from .ai import AIProviderError, call_gemini
+from .audit import FindingDraft, run_rules_audit, sentence_spans
+from .ai import AIProviderError, call_gemini, check_connection, extract_knowledge
 from .config import settings
-from .db import Base, SessionLocal, engine, get_db
+from .corrections import build_rewrite
+from .db import Base, SessionLocal, engine, ensure_columns, get_db
+from .extraction import POLICY_TYPES, Candidate, candidates_from_gemini, extract_text, extract_with_rules, merge_candidates, slug_key
+from .passport import ALGORITHM as PASSPORT_ALGORITHM, sign as sign_passport, verify_passport
 from .main_helpers import make_hash
 from .models import (
     ApprovedFact,
@@ -35,13 +37,14 @@ from .models import (
     Finding,
     Organization,
     Policy,
+    ProposedItem,
     ReviewDecision,
     SourceDocument,
     Terminology,
     User,
     UserRoleEvent,
 )
-from .schemas import ContentCreate, FactCreate, FactUpdate, PolicyCreate, PolicyUpdate, ResolveCreate, ReviewCreate, RoleUpdate, TerminologyCreate, TerminologyUpdate, VersionCreate, finding_dict
+from .schemas import ContentCreate, FactCreate, FactUpdate, PolicyCreate, PolicyUpdate, ProposalApprove, ResolveCreate, ReviewCreate, RewriteRequest, RoleUpdate, TerminologyCreate, TerminologyUpdate, VersionCreate, finding_dict
 from .seed import seed_database
 from .retrieval import retrieve_context
 from .storage import get_storage
@@ -60,15 +63,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 def startup():
-    if settings.demo_mode and settings.database_url.startswith("sqlite"):
-        inspector = inspect(engine)
-        audit_columns = {column["name"] for column in inspector.get_columns("audit_runs")} if inspector.has_table("audit_runs") else set()
-        source_columns = {column["name"] for column in inspector.get_columns("source_documents")} if inspector.has_table("source_documents") else set()
-        required_tables = {"asset_comparisons", "audit_jobs"}
-        if inspector.has_table("audit_runs") and ({"provider_error", "retrieval_mode", "retrieved_context"} - audit_columns or "storage_key" not in source_columns or not required_tables.issubset(set(inspector.get_table_names()))):
-            seed_database(reset=True)
-            return
+    # Never wipe an existing database: create missing tables, then add any missing columns in place.
     Base.metadata.create_all(bind=engine)
+    ensure_columns()
     seed_database()
 
 
@@ -95,6 +92,66 @@ def require_role(db: Session, role_header: str | None, allowed: set[str], defaul
     if user.role not in allowed:
         raise HTTPException(status_code=403, detail=f"Role '{user.role}' cannot perform this action")
     return user
+
+
+def load_rules(db: Session, org: Organization) -> tuple[list[ApprovedFact], list[Policy], list[Terminology]]:
+    facts = list(db.scalars(select(ApprovedFact).where(ApprovedFact.organization_id == org.id, ApprovedFact.active.is_(True))))
+    policies = list(db.scalars(select(Policy).where(Policy.organization_id == org.id, Policy.active.is_(True))))
+    terminology = list(db.scalars(select(Terminology).where(Terminology.organization_id == org.id, Terminology.active.is_(True))))
+    return facts, policies, terminology
+
+
+def latest_audit_for(db: Session, version_id: int | None) -> AuditRun | None:
+    if not version_id:
+        return None
+    return db.scalars(select(AuditRun).where(AuditRun.content_version_id == version_id).order_by(AuditRun.created_at.desc(), AuditRun.id.desc())).first()
+
+
+def flag_dependents(db: Session, org: Organization, dependency_type: str, record: ApprovedFact | Policy) -> set[int]:
+    """Mark approved content that relied on an older version of this fact/policy for revalidation."""
+    dependencies = db.scalars(select(Dependency).where(Dependency.dependency_type == dependency_type, Dependency.dependency_id == record.id, Dependency.dependency_version < record.version))
+    version_ids = {dependency.content_version_id for dependency in dependencies}
+    for version_id in version_ids:
+        version = db.get(ContentVersion, version_id)
+        item = db.get(ContentItem, version.content_item_id) if version else None
+        if item and item.organization_id == org.id and item.current_version_id == version_id and item.status == ContentStatus.APPROVED.value:
+            item.status = ContentStatus.NEEDS_REVALIDATION.value
+    return version_ids
+
+
+def update_fact_record(db: Session, org: Organization, fact: ApprovedFact, updates: dict) -> set[int]:
+    for key, value in updates.items():
+        setattr(fact, key, value)
+    fact.version += 1
+    fact.updated_at = datetime.utcnow()
+    return flag_dependents(db, org, "fact", fact)
+
+
+def default_product(db: Session, org: Organization) -> str:
+    products = list(db.scalars(select(ApprovedFact.product).where(ApprovedFact.organization_id == org.id, ApprovedFact.active.is_(True))))
+    return max(set(products), key=products.count) if products else ""
+
+
+def candidate_is_known(db: Session, org: Organization, candidate: Candidate) -> bool:
+    payload = candidate.payload
+    if candidate.item_type == "fact":
+        query = select(ApprovedFact.id).where(ApprovedFact.organization_id == org.id, ApprovedFact.active.is_(True), func.lower(ApprovedFact.key) == str(payload.get("key", "")).lower(), func.lower(ApprovedFact.value) == str(payload.get("value", "")).lower())
+    elif candidate.item_type == "term":
+        query = select(Terminology.id).where(Terminology.organization_id == org.id, Terminology.active.is_(True), func.lower(Terminology.prohibited) == str(payload.get("prohibited", "")).lower(), func.lower(Terminology.replacement) == str(payload.get("replacement", "")).lower())
+    else:
+        query = select(Policy.id).where(Policy.organization_id == org.id, Policy.active.is_(True), Policy.rule_type == str(payload.get("rule_type", "")), func.lower(Policy.rule_value) == str(payload.get("rule_value", "")).lower())
+    return db.scalar(query) is not None
+
+
+def serialize_proposal(db: Session, item: ProposedItem) -> dict:
+    payload = json.loads(item.payload or "{}")
+    document = db.get(SourceDocument, item.source_document_id)
+    existing = None
+    if item.item_type == "fact" and item.status == "pending":
+        current = db.scalar(select(ApprovedFact).where(ApprovedFact.organization_id == item.organization_id, ApprovedFact.active.is_(True), func.lower(ApprovedFact.key) == str(payload.get("key", "")).lower(), func.lower(ApprovedFact.product) == str(payload.get("product", "")).lower()))
+        if current:
+            existing = {"id": current.id, "value": current.value, "version": current.version}
+    return {"id": item.id, "document_id": item.source_document_id, "document": document.filename if document else "", "item_type": item.item_type, "payload": payload, "quote": item.quote, "page_reference": item.page_reference, "method": item.method, "status": item.status, "existing_fact": existing, "decided_by": item.decided_by}
 
 
 def serialize_fact(fact: ApprovedFact) -> dict:
@@ -163,11 +220,17 @@ def save_audit(db: Session, item: ContentItem, version: ContentVersion, org: Org
             ai_findings = call_gemini(version.text, facts, policies)
             provider_mode = settings.llm_provider
             existing_keys = {draft.issue_key for draft in drafts}
+            rule_claims = [draft.claim_text.lower() for draft in drafts if draft.verification_status != "Supported" and not draft.claim_text.startswith("[")]
             for ai_finding in ai_findings:
                 if ai_finding.issue_key in existing_keys:
                     continue
+                # Rules are authoritative: drop AI policy/terminology findings that restate a rule finding.
+                claim = ai_finding.claim_text.lower()
+                if ai_finding.category in {"Policy", "Terminology"} and any(claim in rule_claim or rule_claim in claim for rule_claim in rule_claims):
+                    continue
+                existing_keys.add(ai_finding.issue_key)
                 evidence = db.get(ApprovedFact if ai_finding.evidence_type == "fact" else Policy, ai_finding.evidence_id) if ai_finding.evidence_id and ai_finding.evidence_type in {"fact", "policy"} else None
-                drafts.append(FindingDraft(issue_key=ai_finding.issue_key, category=ai_finding.category, severity=ai_finding.severity, claim_text=ai_finding.claim_text, explanation=ai_finding.explanation, verification_status=ai_finding.verification_status, suggested_correction=ai_finding.suggested_correction, confidence=ai_finding.confidence, evidence_type=ai_finding.evidence_type, evidence_id=ai_finding.evidence_id if evidence and evidence.organization_id == org.id else None, evidence_label=getattr(evidence, "name", getattr(evidence, "key", "")), evidence_excerpt=getattr(evidence, "description", getattr(evidence, "excerpt", "")), source_reference=getattr(evidence, "source_reference", "")))
+                drafts.append(FindingDraft(issue_key=ai_finding.issue_key, category=ai_finding.category, severity=ai_finding.severity, claim_text=ai_finding.claim_text, explanation=ai_finding.explanation, verification_status=ai_finding.verification_status, suggested_correction=ai_finding.suggested_correction, confidence=ai_finding.confidence, evidence_type=ai_finding.evidence_type, evidence_id=ai_finding.evidence_id if evidence and evidence.organization_id == org.id else None, evidence_label=getattr(evidence, "name", getattr(evidence, "key", "")), evidence_excerpt=getattr(evidence, "description", getattr(evidence, "excerpt", "")), source_reference=getattr(evidence, "source_reference", ""), origin="ai"))
         except AIProviderError as exc:
             provider_mode = f"{settings.llm_provider}-error-fallback"
             provider_error = str(exc)
@@ -178,12 +241,15 @@ def save_audit(db: Session, item: ContentItem, version: ContentVersion, org: Org
     audit = AuditRun(content_version_id=version.id, provider_mode=provider_mode, provider_error=provider_error, retrieval_mode="lexical", retrieved_context=json.dumps([item.__dict__ for item in retrieved]), overall_status="changes_required" if unresolved else "passed")
     db.add(audit)
     db.flush()
-    for sentence_match in re.finditer(r"[^.!?]+[.!?]?", version.text):
-        claim_text = sentence_match.group(0).strip()
+    for begin, finish in sentence_spans(version.text):
+        claim_text = version.text[begin:finish].strip()
         if claim_text:
             claim_type = "promotional" if re.search(r"\b(best|waterproof|revolutionary|guarantee|number one|#1)\b", claim_text, re.I) else "statement"
             number_match = re.search(r"\b\d+(?:\.\d+)?\s*(?:mAh|year|years|%|mm|kg)\b", claim_text, re.I)
-            db.add(ExtractedClaim(audit_run_id=audit.id, claim_text=claim_text, claim_type=claim_type, entity=item.context, structured_value=number_match.group(0) if number_match else "", position_start=sentence_match.start(), position_end=sentence_match.end()))
+            db.add(ExtractedClaim(audit_run_id=audit.id, claim_text=claim_text, claim_type=claim_type, entity=item.context, structured_value=number_match.group(0) if number_match else "", position_start=begin, position_end=finish))
+    # Re-auditing a version replaces its dependency snapshot, so drift never shows stale or duplicate rows.
+    db.execute(delete(Dependency).where(Dependency.content_version_id == version.id))
+    recorded_dependencies: set[tuple[str, int]] = set()
     for draft in drafts:
         if draft.evidence_id and draft.evidence_type in {"fact", "policy"}:
             if draft.evidence_type == "fact":
@@ -192,9 +258,10 @@ def save_audit(db: Session, item: ContentItem, version: ContentVersion, org: Org
                 evidence = db.get(Policy, draft.evidence_id)
             if not evidence or evidence.organization_id != org.id:
                 continue
-            dependency_version = evidence.version
-            db.add(Dependency(content_version_id=version.id, dependency_type=draft.evidence_type, dependency_id=draft.evidence_id, dependency_version=dependency_version))
-        db.add(Finding(audit_run_id=audit.id, issue_key=draft.issue_key, category=draft.category, severity=draft.severity, claim_text=draft.claim_text, explanation=draft.explanation, verification_status=draft.verification_status, suggested_correction=draft.suggested_correction, confidence=draft.confidence, evidence_type=draft.evidence_type or "none", evidence_id=draft.evidence_id, evidence_label=draft.evidence_label, evidence_excerpt=draft.evidence_excerpt, source_reference=draft.source_reference))
+            if (draft.evidence_type, draft.evidence_id) not in recorded_dependencies:
+                recorded_dependencies.add((draft.evidence_type, draft.evidence_id))
+                db.add(Dependency(content_version_id=version.id, dependency_type=draft.evidence_type, dependency_id=draft.evidence_id, dependency_version=evidence.version))
+        db.add(Finding(audit_run_id=audit.id, issue_key=draft.issue_key, category=draft.category, severity=draft.severity, claim_text=draft.claim_text, explanation=draft.explanation, verification_status=draft.verification_status, suggested_correction=draft.suggested_correction, confidence=draft.confidence, evidence_type=draft.evidence_type or "none", evidence_id=draft.evidence_id, evidence_label=draft.evidence_label, evidence_excerpt=draft.evidence_excerpt, source_reference=draft.source_reference, origin=draft.origin))
     item.status = ContentStatus.CHANGES_REQUIRED.value if unresolved else ContentStatus.AUDITED.value
     db.add(AuditEvent(organization_id=org.id, event_type="audit_completed", message=f"Audited {item.title} version {version.version_number} using {audit.provider_mode}."))
     db.commit()
@@ -242,6 +309,8 @@ def health():
         "mode": "demo" if settings.demo_mode else "configured",
         "llm_provider": settings.llm_provider if settings.llm_api_key else "rules-only",
         "llm_model": settings.llm_model if settings.llm_api_key else None,
+        "passport_signing": PASSPORT_ALGORITHM,
+        "passport_secret_is_default": settings.passport_secret == "dev-only-change-me",
     }
 
 
@@ -249,7 +318,7 @@ def health():
 def bootstrap(role: str = "creator", db: Session = Depends(get_db)):
     org = demo_org(db)
     user = db.scalar(select(User).where(User.organization_id == org.id, User.role == role)) or db.scalar(select(User).where(User.organization_id == org.id))
-    return {"organization": {"id": org.id, "name": org.name, "demo": org.demo}, "user": {"id": user.id, "name": user.name, "role": user.role}, "provider_mode": "rules-only" if not settings.llm_api_key else settings.llm_provider}
+    return {"organization": {"id": org.id, "name": org.name, "demo": org.demo}, "user": {"id": user.id, "name": user.name, "role": user.role}, "provider_mode": "rules-only" if not settings.llm_api_key else settings.llm_provider, "llm_model": settings.llm_model if settings.llm_api_key else None}
 
 
 @app.get("/api/dashboard")
@@ -266,7 +335,7 @@ def dashboard(db: Session = Depends(get_db)):
             by_category[finding.category] = by_category.get(finding.category, 0) + 1
             by_issue[finding.issue_key] = by_issue.get(finding.issue_key, 0) + 1
     reviewed_items = sum(1 for item in items if item.status not in {ContentStatus.DRAFT.value, ContentStatus.CHANGES_REQUIRED.value})
-    return {"reviewed": reviewed_items, "audit_runs": len(audits), "provider_mode": "rules-only" if not settings.llm_api_key else settings.llm_provider, "unresolved_findings": sum(1 for f in findings if f.resolution_status != "resolved" and f.verification_status != "Supported"), "awaiting_approval": sum(1 for item in items if item.status == ContentStatus.RESUBMITTED.value), "needs_revalidation": sum(1 for item in items if item.status == ContentStatus.NEEDS_REVALIDATION.value), "findings_by_category": by_category, "common_violations": [{"issue_key": key, "count": count} for key, count in sorted(by_issue.items(), key=lambda pair: pair[1], reverse=True)[:5]], "recent_activity": recent, "items": [serialize_item(db, item) for item in items]}
+    return {"reviewed": reviewed_items, "audit_runs": len(audits), "provider_mode": "rules-only" if not settings.llm_api_key else settings.llm_provider, "llm_model": settings.llm_model if settings.llm_api_key else None, "unresolved_findings": sum(1 for f in findings if f.resolution_status != "resolved" and f.verification_status != "Supported"), "awaiting_approval": sum(1 for item in items if item.status == ContentStatus.RESUBMITTED.value), "needs_revalidation": sum(1 for item in items if item.status == ContentStatus.NEEDS_REVALIDATION.value), "findings_by_category": by_category, "common_violations": [{"issue_key": key, "count": count} for key, count in sorted(by_issue.items(), key=lambda pair: pair[1], reverse=True)[:5]], "recent_activity": recent, "items": [serialize_item(db, item) for item in items]}
 
 
 @app.get("/api/knowledge")
@@ -293,19 +362,7 @@ def update_fact(fact_id: int, payload: FactUpdate, role: str | None = Header(def
     fact = db.get(ApprovedFact, fact_id)
     if not fact or fact.organization_id != org.id:
         raise HTTPException(status_code=404, detail="Approved fact not found")
-    updates = payload.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        setattr(fact, key, value)
-    fact.version += 1
-    fact.updated_at = datetime.utcnow()
-    deps = list(db.scalars(select(Dependency).where(Dependency.dependency_type == "fact", Dependency.dependency_id == fact.id, Dependency.dependency_version < fact.version)))
-    affected_ids = {dep.content_version_id for dep in deps}
-    for version_id in affected_ids:
-        version = db.get(ContentVersion, version_id)
-        if version:
-            item = db.get(ContentItem, version.content_item_id)
-            if item and item.status == ContentStatus.APPROVED.value:
-                item.status = ContentStatus.NEEDS_REVALIDATION.value
+    affected_ids = update_fact_record(db, org, fact, payload.model_dump(exclude_unset=True))
     db.add(AuditEvent(organization_id=org.id, event_type="fact_updated", message=f"Updated {fact.key} to version {fact.version}; {len(affected_ids)} dependent version(s) flagged."))
     db.commit()
     return {"fact": serialize_fact(fact), "affected_versions": len(affected_ids)}
@@ -320,8 +377,10 @@ def deactivate_fact(fact_id: int, role: str | None = Header(default=None, alias=
         raise HTTPException(status_code=404, detail="Approved fact not found")
     fact.active = False
     fact.version += 1
+    affected_ids = flag_dependents(db, org, "fact", fact)
+    db.add(AuditEvent(organization_id=org.id, event_type="fact_deactivated", message=f"Deactivated {fact.key}; {len(affected_ids)} dependent version(s) flagged."))
     db.commit()
-    return serialize_fact(fact)
+    return {**serialize_fact(fact), "affected_versions": len(affected_ids)}
 
 
 @app.post("/api/policies")
@@ -345,12 +404,7 @@ def update_policy(policy_id: int, payload: PolicyUpdate, role: str | None = Head
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(policy, key, value)
     policy.version += 1
-    affected_ids = {dep.content_version_id for dep in db.scalars(select(Dependency).where(Dependency.dependency_type == "policy", Dependency.dependency_id == policy.id, Dependency.dependency_version < policy.version))}
-    for version_id in affected_ids:
-        version = db.get(ContentVersion, version_id)
-        item = db.get(ContentItem, version.content_item_id) if version else None
-        if item and item.status == ContentStatus.APPROVED.value:
-            item.status = ContentStatus.NEEDS_REVALIDATION.value
+    affected_ids = flag_dependents(db, org, "policy", policy)
     db.add(AuditEvent(organization_id=org.id, event_type="policy_updated", message=f"Updated {policy.name} to version {policy.version}; {len(affected_ids)} dependent version(s) flagged."))
     db.commit()
     return {"policy": serialize_policy(policy), "affected_versions": len(affected_ids)}
@@ -365,8 +419,10 @@ def deactivate_policy(policy_id: int, role: str | None = Header(default=None, al
         raise HTTPException(status_code=404, detail="Policy not found")
     policy.active = False
     policy.version += 1
+    affected_ids = flag_dependents(db, org, "policy", policy)
+    db.add(AuditEvent(organization_id=org.id, event_type="policy_deactivated", message=f"Deactivated {policy.name}; {len(affected_ids)} dependent version(s) flagged."))
     db.commit()
-    return serialize_policy(policy)
+    return {**serialize_policy(policy), "affected_versions": len(affected_ids)}
 
 
 @app.post("/api/terminology")
@@ -429,7 +485,7 @@ def create_content(payload: ContentCreate, role: str | None = Header(default=Non
     item = ContentItem(organization_id=org.id, title=payload.title, content_type=payload.content_type, context=payload.context, status=ContentStatus.DRAFT.value)
     db.add(item)
     db.flush()
-    version = ContentVersion(content_item_id=item.id, version_number=1, text=payload.text, content_hash=make_hash(payload.text), created_by="Demo Creator")
+    version = ContentVersion(content_item_id=item.id, version_number=1, text=payload.text, content_hash=make_hash(payload.text), created_by=current_user(db, role, "creator").name)
     db.add(version)
     db.flush()
     item.current_version_id = version.id
@@ -462,7 +518,7 @@ def create_version(content_id: int, payload: VersionCreate, role: str | None = H
     if not item or item.organization_id != org.id:
         raise HTTPException(status_code=404, detail="Content not found")
     latest_number = db.scalar(select(func.max(ContentVersion.version_number)).where(ContentVersion.content_item_id == item.id)) or 0
-    version = ContentVersion(content_item_id=item.id, version_number=latest_number + 1, text=payload.text, content_hash=make_hash(payload.text), created_by="Demo Creator")
+    version = ContentVersion(content_item_id=item.id, version_number=latest_number + 1, text=payload.text, content_hash=make_hash(payload.text), created_by=current_user(db, role, "creator").name)
     item.status = ContentStatus.DRAFT.value
     db.add(version)
     db.flush()
@@ -517,6 +573,11 @@ def submit_content(content_id: int, role: str | None = Header(default=None, alia
         raise HTTPException(status_code=404, detail="Content not found")
     if item.status == ContentStatus.CHANGES_REQUIRED.value:
         raise HTTPException(status_code=409, detail="Resolve or review the remaining findings before submitting")
+    latest = latest_audit_for(db, item.current_version_id)
+    if not latest:
+        raise HTTPException(status_code=409, detail="Run an audit on the current version before submitting it for review")
+    if any(finding.verification_status != "Supported" and finding.resolution_status != "resolved" for finding in latest.findings):
+        raise HTTPException(status_code=409, detail="Resolve or fix the open findings before submitting")
     item.status = ContentStatus.RESUBMITTED.value
     db.add(AuditEvent(organization_id=org.id, event_type="submitted_for_review", message=f"{item.title} version {item.current_version_id} submitted for human review."))
     db.commit()
@@ -540,7 +601,9 @@ def review_content(content_id: int, payload: ReviewCreate, role: str | None = He
         raise HTTPException(status_code=409, detail="Approval requires a current audit with no unresolved unsupported findings")
     if payload.decision == "approve":
         item.status = ContentStatus.APPROVED.value
-        passport = {"content_id": item.id, "version_id": version.id, "content_hash": version.content_hash, "policy_versions": [{"id": dep.dependency_id, "version": dep.dependency_version} for dep in db.scalars(select(Dependency).where(Dependency.content_version_id == version.id, Dependency.dependency_type == "policy"))], "fact_versions": [{"id": dep.dependency_id, "version": dep.dependency_version} for dep in db.scalars(select(Dependency).where(Dependency.content_version_id == version.id, Dependency.dependency_type == "fact"))], "audit_engine_version": latest_audit.engine_version if latest_audit else "rules-engine-1.0", "audit_findings": [finding_dict(finding) for finding in latest_audit.findings] if latest_audit else [], "reviewer": reviewer.name, "decision": "approved", "approved_at": datetime.utcnow().isoformat(), "notice": "This passport records review evidence and process; it is not a mathematical guarantee of truth or legal compliance."}
+        passport = {"content_id": item.id, "version_id": version.id, "content_hash": version.content_hash, "policy_versions": [{"id": dep.dependency_id, "version": dep.dependency_version} for dep in db.scalars(select(Dependency).where(Dependency.content_version_id == version.id, Dependency.dependency_type == "policy"))], "fact_versions": [{"id": dep.dependency_id, "version": dep.dependency_version} for dep in db.scalars(select(Dependency).where(Dependency.content_version_id == version.id, Dependency.dependency_type == "fact"))], "audit_engine_version": latest_audit.engine_version if latest_audit else "rules-engine-1.0", "audit_findings": [finding_dict(finding) for finding in latest_audit.findings] if latest_audit else [], "reviewer": reviewer.name, "decision": "approved", "approved_at": datetime.utcnow().isoformat(), "notice": "This passport records review evidence and process; it is not a mathematical guarantee of truth or legal compliance.", "reviewer_comment": payload.comment}
+        passport["signature_algorithm"] = PASSPORT_ALGORITHM
+        passport["signature"] = sign_passport(passport, settings.passport_secret)
         db.add(ApprovalRecord(content_version_id=version.id, reviewer_id=reviewer.id, decision="approved", content_hash=version.content_hash, passport_json=json.dumps(passport)))
     elif payload.decision == "request_changes":
         item.status = ContentStatus.CHANGES_REQUIRED.value
@@ -554,7 +617,7 @@ def review_content(content_id: int, payload: ReviewCreate, role: str | None = He
 
 @app.post("/api/findings/{finding_id}/resolve")
 def resolve_finding(finding_id: int, payload: ResolveCreate, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
-    require_role(db, role, {"creator", "reviewer", "admin"}, default_role="creator")
+    actor = require_role(db, role, {"creator", "reviewer", "admin"}, default_role="creator")
     finding = db.get(Finding, finding_id)
     if not finding:
         raise HTTPException(status_code=404, detail="Finding not found")
@@ -567,8 +630,11 @@ def resolve_finding(finding_id: int, payload: ResolveCreate, role: str | None = 
         raise HTTPException(status_code=404, detail="Finding not found")
     if payload.action == "edit" and payload.corrected_text:
         finding.suggested_correction = payload.corrected_text
+    if actor.role == "creator" and finding.severity == "high" and finding.verification_status != "Supported":
+        raise HTTPException(status_code=403, detail="High-severity findings cannot be waved through by the creator. Fix the text and re-audit, or ask a reviewer to resolve it.")
     finding.resolution_status = "resolved"
     finding.resolution_reason = payload.reason or payload.action
+    finding.resolved_by = f"{actor.name} ({actor.role})"
     if audit and item:
         remaining = [item for item in audit.findings if item.verification_status != "Supported" and item.resolution_status != "resolved"]
         if not remaining and item.status == ContentStatus.CHANGES_REQUIRED.value:
@@ -623,15 +689,8 @@ async def upload_content(file: UploadFile = File(...), role: str | None = Header
     raw = await file.read()
     if len(raw) > settings.max_upload_bytes:
         raise HTTPException(status_code=413, detail="File exceeds the 10 MB demo limit")
-    page_count = 0
     try:
-        if file.filename.lower().endswith(".pdf"):
-            from io import BytesIO
-            reader = PdfReader(BytesIO(raw))
-            page_count = len(reader.pages)
-            text = "\n".join(f"[Page {index + 1}]\n{page.extract_text() or ''}" for index, page in enumerate(reader.pages))
-        else:
-            text = raw.decode("utf-8")
+        text, page_count = extract_text(file.filename, raw)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not extract text from upload: {exc}") from exc
     if not text.strip():
@@ -772,3 +831,193 @@ async def upload_image_for_ocr(file: UploadFile = File(...), role: str | None = 
     if not text.strip():
         raise HTTPException(status_code=422, detail="No text was detected in the image")
     return {"filename": Path(file.filename).name, "text": text, "mode": "tesseract-ocr"}
+
+
+# ---------------------------------------------------------------------------
+# Round 3: Smart Correction Engine
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/content/{content_id}/rewrite")
+def rewrite_content(content_id: int, payload: RewriteRequest, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    """Propose minimal, explained edits. Nothing is saved: the creator picks changes and re-audits."""
+    require_role(db, role, {"creator", "admin"}, default_role="creator")
+    org = demo_org(db)
+    item = db.get(ContentItem, content_id)
+    if not item or item.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Content not found")
+    version = db.get(ContentVersion, item.current_version_id) if item.current_version_id else None
+    text = payload.text if payload.text and payload.text.strip() else (version.text if version else "")
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="There is no text to rewrite")
+    facts, policies, terminology = load_rules(db, org)
+    ai_findings: list[dict] = []
+    latest = latest_audit_for(db, version.id if version else None)
+    if latest:
+        ai_findings = [
+            {"issue_key": f.issue_key, "claim_text": f.claim_text, "suggested_correction": f.suggested_correction, "explanation": f.explanation, "severity": f.severity, "category": f.category}
+            for f in latest.findings
+            if f.origin == "ai" and f.resolution_status != "resolved" and f.verification_status != "Supported"
+        ]
+    result = build_rewrite(text, facts, policies, terminology, ai_findings, set(payload.accept) if payload.accept is not None else None)
+    result["content_id"] = item.id
+    result["provider_mode"] = "gemini" if ai_findings else "rules-only"
+    db.add(AuditEvent(organization_id=org.id, event_type="rewrite_proposed", message=f"Proposed {len(result['changes'])} change(s) for {item.title} ({result['method']}); verification {'passed' if result['verification']['passed'] else 'has open issues'}."))
+    db.commit()
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Round 3: Brand Knowledge Extraction (documents -> proposed facts, terms, policies)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/documents/{document_id}/extract")
+def extract_document(document_id: int, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    require_role(db, role, {"admin"})
+    org = demo_org(db)
+    document = db.get(SourceDocument, document_id)
+    if not document or document.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Source document not found")
+    text, text_source = "", "stored file"
+    if document.storage_key:
+        try:
+            text, _ = extract_text(document.filename, get_storage().get(document.storage_key))
+        except Exception:
+            text = ""
+    if not text.strip():
+        text, text_source = document.excerpt or "", "stored excerpt"
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="This document has no readable text to extract from")
+
+    product = default_product(db, org)
+    rule_candidates = extract_with_rules(text, product)
+    gemini_candidates: list[Candidate] = []
+    dropped, provider_error, method = 0, "", "rules"
+    if settings.llm_api_key and settings.llm_provider.lower() == "gemini":
+        try:
+            gemini_candidates, dropped = candidates_from_gemini(extract_knowledge(text, product), text, product)
+            method = "gemini+rules"
+        except AIProviderError as exc:
+            provider_error = str(exc)
+    merged = merge_candidates(gemini_candidates, rule_candidates)
+    fresh = [candidate for candidate in merged if not candidate_is_known(db, org, candidate)]
+
+    db.execute(delete(ProposedItem).where(ProposedItem.source_document_id == document.id, ProposedItem.status == "pending"))
+    created: list[ProposedItem] = []
+    for candidate in fresh:
+        proposal = ProposedItem(organization_id=org.id, source_document_id=document.id, item_type=candidate.item_type, payload=json.dumps(candidate.payload), quote=candidate.quote, page_reference=candidate.page_reference, method=candidate.method)
+        db.add(proposal)
+        created.append(proposal)
+    db.add(AuditEvent(organization_id=org.id, event_type="knowledge_extracted", message=f"Extracted {len(created)} proposal(s) from {document.filename} ({method}); {len(merged) - len(fresh)} already known, {dropped} unverified dropped."))
+    db.commit()
+    return {"document_id": document.id, "method": method, "text_source": text_source, "provider_error": provider_error, "stats": {"proposed": len(created), "already_known": len(merged) - len(fresh), "unverified_dropped": dropped}, "items": [serialize_proposal(db, proposal) for proposal in created]}
+
+
+@app.get("/api/proposals")
+def list_proposals(status: str = "pending", role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    require_role(db, role, {"admin"})
+    org = demo_org(db)
+    query = select(ProposedItem).where(ProposedItem.organization_id == org.id).order_by(ProposedItem.id)
+    if status != "all":
+        query = query.where(ProposedItem.status == status)
+    return {"items": [serialize_proposal(db, proposal) for proposal in db.scalars(query)]}
+
+
+@app.post("/api/proposals/{proposal_id}/approve")
+def approve_proposal(proposal_id: int, payload: ProposalApprove, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    """Only this step turns extracted text into approved evidence."""
+    actor = require_role(db, role, {"admin"})
+    org = demo_org(db)
+    proposal = db.get(ProposedItem, proposal_id)
+    if not proposal or proposal.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=409, detail=f"This proposal was already {proposal.status}")
+    document = db.get(SourceDocument, proposal.source_document_id)
+    data = {**json.loads(proposal.payload or "{}"), **(payload.payload or {})}
+    source_reference = f"{document.filename if document else 'Source document'} · {proposal.page_reference or 'extracted text'}"
+    affected: set[int] = set()
+    try:
+        if proposal.item_type == "fact":
+            fields = FactCreate(key=slug_key(str(data.get("key", ""))), product=str(data.get("product") or default_product(db, org)), value=str(data.get("value", "")), source_reference=source_reference, excerpt=proposal.quote[:1000])
+            existing = db.scalar(select(ApprovedFact).where(ApprovedFact.organization_id == org.id, ApprovedFact.active.is_(True), func.lower(ApprovedFact.key) == fields.key.lower(), func.lower(ApprovedFact.product) == fields.product.lower()))
+            if existing:
+                affected = update_fact_record(db, org, existing, {"value": fields.value, "source_reference": fields.source_reference, "excerpt": fields.excerpt, "source_document_id": proposal.source_document_id})
+                record = existing
+            else:
+                record = ApprovedFact(organization_id=org.id, key=fields.key, product=fields.product, value=fields.value, source_document_id=proposal.source_document_id, source_reference=fields.source_reference, excerpt=fields.excerpt, version=1, active=True)
+                db.add(record)
+        elif proposal.item_type == "term":
+            fields = TerminologyCreate(prohibited=str(data.get("prohibited", "")).strip(), replacement=str(data.get("replacement", "")).strip())
+            record = db.scalar(select(Terminology).where(Terminology.organization_id == org.id, func.lower(Terminology.prohibited) == fields.prohibited.lower()))
+            if record:
+                record.replacement, record.active = fields.replacement, True
+            else:
+                record = Terminology(organization_id=org.id, prohibited=fields.prohibited, replacement=fields.replacement, active=True)
+                db.add(record)
+        elif proposal.item_type == "policy":
+            fields = PolicyCreate(name=str(data.get("name", "")).strip(), rule_type=str(data.get("rule_type", "")), rule_value=str(data.get("rule_value", "")).strip(), description=str(data.get("description") or proposal.quote), source_reference=source_reference)
+            if fields.rule_type not in POLICY_TYPES:
+                raise HTTPException(status_code=422, detail=f"Policy rule type must be one of: {', '.join(sorted(POLICY_TYPES))}")
+            record = db.scalar(select(Policy).where(Policy.organization_id == org.id, Policy.active.is_(True), Policy.rule_type == fields.rule_type, func.lower(Policy.rule_value) == fields.rule_value.lower()))
+            if not record:
+                record = Policy(organization_id=org.id, name=fields.name, rule_type=fields.rule_type, rule_value=fields.rule_value, description=fields.description, source_document_id=proposal.source_document_id, source_reference=source_reference, version=1, active=True)
+                db.add(record)
+        else:
+            raise HTTPException(status_code=422, detail="Unknown proposal type")
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid value: {exc.errors()[0]['msg']}") from exc
+    db.flush()
+    proposal.status, proposal.decided_by, proposal.decided_at, proposal.resulting_record_id = "approved", actor.name, datetime.utcnow(), record.id
+    db.add(AuditEvent(organization_id=org.id, event_type="knowledge_approved", message=f"Administrator {actor.name} approved extracted {proposal.item_type} from {document.filename if document else 'a source document'}; {len(affected)} dependent version(s) flagged."))
+    db.commit()
+    return {"proposal": serialize_proposal(db, proposal), "record_id": record.id, "affected_versions": len(affected)}
+
+
+@app.post("/api/proposals/{proposal_id}/reject")
+def reject_proposal(proposal_id: int, role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    actor = require_role(db, role, {"admin"})
+    org = demo_org(db)
+    proposal = db.get(ProposedItem, proposal_id)
+    if not proposal or proposal.organization_id != org.id:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=409, detail=f"This proposal was already {proposal.status}")
+    proposal.status, proposal.decided_by, proposal.decided_at = "rejected", actor.name, datetime.utcnow()
+    db.add(AuditEvent(organization_id=org.id, event_type="knowledge_rejected", message=f"Administrator {actor.name} rejected an extracted {proposal.item_type}."))
+    db.commit()
+    return serialize_proposal(db, proposal)
+
+
+# ---------------------------------------------------------------------------
+# Round 3: passport verification and AI connection test
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/content/{content_id}/passport/verify")
+def verify_content_passport(content_id: int, db: Session = Depends(get_db)):
+    org = demo_org(db)
+    item = db.get(ContentItem, content_id)
+    if not item or item.organization_id != org.id or not item.current_version_id:
+        raise HTTPException(status_code=404, detail="Passport not found")
+    record = db.scalar(select(ApprovalRecord).where(ApprovalRecord.content_version_id == item.current_version_id))
+    if not record:
+        raise HTTPException(status_code=404, detail="No approved passport exists for this version")
+    version = db.get(ContentVersion, item.current_version_id)
+    passport_data = json.loads(record.passport_json)
+    changed: list[str] = []
+    for kind, model, label in (("fact_versions", ApprovedFact, "key"), ("policy_versions", Policy, "name")):
+        for entry in passport_data.get(kind, []):
+            current = db.get(model, entry.get("id"))
+            if current and (current.version > entry.get("version", 0) or current.active is False):
+                changed.append(f"{getattr(current, label)} v{entry.get('version')}→v{current.version}")
+    result = verify_passport(passport_data, secret=settings.passport_secret, version_text_hash=make_hash(version.text), record_hash=record.content_hash, changed_dependencies=changed, item_status=item.status)
+    result["algorithm"] = PASSPORT_ALGORITHM
+    return result
+
+
+@app.post("/api/ai/test")
+def test_ai_connection(role: str | None = Header(default=None, alias="X-Demo-Role"), db: Session = Depends(get_db)):
+    require_role(db, role, {"admin"})
+    return check_connection()

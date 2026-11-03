@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import sys
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -10,8 +11,11 @@ from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, 
 
 
 ROOT = Path(__file__).parent
-SOURCE = ROOT / "BrandProof_Round2_Report.md"
-OUTPUT = ROOT / "BrandProof_Round2_Report.pdf"
+# Usage: python generate_report.py [source.md] [output.pdf] [footer label]
+SOURCE = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "BrandProof_Round2_Report.md"
+OUTPUT = Path(sys.argv[2]) if len(sys.argv) > 2 else SOURCE.with_suffix(".pdf")
+FOOTER = sys.argv[3] if len(sys.argv) > 3 else "BrandProof AI · Round 2 submission"
+IS_ROUND2 = "Round2" in SOURCE.name
 
 
 def clean(text: str) -> str:
@@ -37,7 +41,7 @@ def footer(canvas, doc):
     canvas.line(0.65 * inch, 0.55 * inch, 7.85 * inch, 0.55 * inch)
     canvas.setFont("Helvetica", 8)
     canvas.setFillColor(colors.HexColor("#8a90a0"))
-    canvas.drawString(0.65 * inch, 0.35 * inch, "BrandProof AI · Round 2 submission")
+    canvas.drawString(0.65 * inch, 0.35 * inch, FOOTER)
     canvas.drawRightString(7.85 * inch, 0.35 * inch, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -46,9 +50,30 @@ doc = BaseDocTemplate(str(OUTPUT), pagesize=letter, rightMargin=0.65 * inch, lef
 frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height, id="normal")
 doc.addPageTemplates([PageTemplate(id="all", frames=frame, onPage=footer)])
 
+def markdown_table(rows):
+    cells = [[Paragraph(clean(cell.strip()), styles["BPText"]) for cell in row.strip().strip("|").split("|")] for row in rows if not re.match(r"^\s*\|[\s:|-]+\|\s*$", row)]
+    width = len(cells[0])
+    table = Table(cells, colWidths=[doc.width / width] * width, repeatRows=1)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e9e4ff")),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#ddd8cf")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    return table
+
+
 story = []
 lines = SOURCE.read_text(encoding="utf-8").splitlines()
+table_rows = []
 for index, line in enumerate(lines):
+    if line.startswith("|"):
+        table_rows.append(line)
+        if index + 1 >= len(lines) or not lines[index + 1].startswith("|"):
+            story.append(markdown_table(table_rows))
+            story.append(Spacer(1, 6))
+            table_rows = []
+        continue
     if line.startswith("# "):
         story.append(Paragraph(clean(line[2:]), styles["BPTitle"]))
         story.append(Spacer(1, 2))
@@ -65,30 +90,31 @@ for index, line in enumerate(lines):
     elif line.strip():
         story.append(Paragraph(clean(line), styles["BPText"]))
 
-story.append(Spacer(1, 10))
-story.append(Paragraph("Verification snapshot", styles["BPH2"]))
-table = Table([
-    ["Check", "Result"],
-    ["Backend automated tests", "14 passed"],
-    ["Python compile check", "Passed"],
-    ["Frontend TypeScript", "Passed"],
-    ["Next.js production build", "Passed"],
-    ["Live API smoke check", "HTTP 200"],
-    ["Docker / browser capture", "Environment unavailable"],
-], colWidths=[3.55 * inch, 3.65 * inch])
-table.setStyle(TableStyle([
-    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#202942")),
-    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-    ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-    ("LEADING", (0, 0), (-1, -1), 10),
-    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#ddd8cf")),
-    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#fffdf9"), colors.HexColor("#f7f4ee")]),
-    ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#424b5e")),
-    ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ("TOPPADDING", (0, 0), (-1, -1), 4),
-    ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-]))
-story.append(table)
+if IS_ROUND2:
+  story.append(Spacer(1, 10))
+  story.append(Paragraph("Verification snapshot", styles["BPH2"]))
+  table = Table([
+      ["Check", "Result"],
+      ["Backend automated tests", "14 passed"],
+      ["Python compile check", "Passed"],
+      ["Frontend TypeScript", "Passed"],
+      ["Next.js production build", "Passed"],
+      ["Live API smoke check", "HTTP 200"],
+      ["Docker / browser capture", "Environment unavailable"],
+  ], colWidths=[3.55 * inch, 3.65 * inch])
+  table.setStyle(TableStyle([
+      ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#202942")),
+      ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+      ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+      ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+      ("LEADING", (0, 0), (-1, -1), 10),
+      ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#ddd8cf")),
+      ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.HexColor("#fffdf9"), colors.HexColor("#f7f4ee")]),
+      ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#424b5e")),
+      ("VALIGN", (0, 0), (-1, -1), "TOP"),
+      ("TOPPADDING", (0, 0), (-1, -1), 4),
+      ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+  ]))
+  story.append(table)
 doc.build(story)
 print(OUTPUT)

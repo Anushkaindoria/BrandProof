@@ -1,0 +1,82 @@
+{
+ "facts": [
+  {
+   "id": 1,
+   "key": "battery_capacity",
+   "product": "NovaTech X1",
+   "value": "5000 mAh",
+   "source_reference": "NovaTech_X1_Product_Brief.pdf \u00b7 p. 2",
+   "excerpt": "Battery capacity: 5000 mAh."
+  },
+  {
+   "id": 2,
+   "key": "water_resistance",
+   "product": "NovaTech X1",
+   "value": "Not officially certified",
+   "source_reference": "NovaTech_X1_Product_Brief.pdf \u00b7 p. 2",
+   "excerpt": "Water resistance: Not officially certified."
+  },
+  {
+   "id": 3,
+   "key": "warranty",
+   "product": "NovaTech X1",
+   "value": "1 year",
+   "source_reference": "NovaTech_X1_Product_Brief.pdf \u00b7 p. 2",
+   "excerpt": "Warranty: 1 year."
+  },
+  {
+   "id": 4,
+   "key": "screen_size",
+   "product": "NovaTech X1",
+   "value": "6.1 inches",
+   "source_reference": "NovaTech_X1_Product_Brief.pdf \u00b7 p. 2",
+   "excerpt": "Screen size: 6.1 inches."
+  },
+  {
+   "id": 5,
+   "key": "charging_speed",
+   "product": "NovaTech X1",
+   "value": "65 W",
+   "source_reference": "NovaTech_X1_Product_Brief.pdf \u00b7 p. 3",
+   "excerpt": "Charging speed: 65 W."
+  }
+ ],
+ "policies": [
+  {
+   "id": 11,
+   "name": "No unsupported waterproof claims",
+   "rule_type": "prohibited_claim",
+   "rule_value": "waterproof",
+   "description": "Do not describe NovaTech X1 as waterproof when official certification is absent.",
+   "source_reference": "NovaTech_X1_Product_Brief.pdf \u00b7 p. 2"
+  },
+  {
+   "id": 12,
+   "name": "Unsupported superlatives require proof",
+   "rule_type": "superlative",
+   "rule_value": "best|greatest|#1",
+   "description": "Universal rankings and superlatives need approved evidence or human review.",
+   "source_reference": "Brand Messaging Standards \u00b7 p. 4"
+  },
+  {
+   "id": 13,
+   "name": "No guarantee claims",
+   "rule_type": "prohibited_claim",
+   "rule_value": "guaranteed",
+   "description": "Do not promise guaranteed outcomes.",
+   "source_reference": "Brand Messaging Standards \u00b7 p. 5"
+  }
+ ],
+ "terminology": [
+  {
+   "id": 21,
+   "prohibited": "seamless",
+   "replacement": "simple"
+  },
+  {
+   "id": 22,
+   "prohibited": "cheap",
+   "replacement": "affordable"
+  }
+ ]
+}

@@ -15,7 +15,26 @@ BrandProof AI is a deployable Round 2 hackathon MVP for evidence-backed brand go
 - Dependency records and Brand Drift revalidation queue.
 - Dashboard metrics calculated from persisted records.
 - PDF/text/Markdown upload extraction with safe extension and size checks.
-- Automated backend tests for the core audit and review workflow.
+- Automated backend tests for the audit, review, correction, extraction and passport workflows.
+
+## Round 3 additions
+
+- **Gemini AI Content Auditor.** With `LLM_PROVIDER=gemini` and a key, Gemini reviews tone, terminology, accessibility and policy. Findings carry severity, a reason and an evidence citation, are validated against organization records, and are tagged as AI suggestions. Rules stay authoritative and the audit falls back to rules-only (with the error shown) if Gemini fails.
+- **Smart Correction Engine.** *Suggest rewrite* on the audit screen proposes minimal edits, each explained and sourced. Rule fixes are exact; Gemini edits are kept only if the rules confirm they cannot introduce a violation. Accept or reject each change, then re-audit.
+- **Brand Knowledge Extraction.** Administrators extract proposed facts, terminology and policies from an uploaded guideline. Each proposal shows its source quote and page. Nothing becomes evidence until it is approved.
+- **Governance fixes.** High-severity findings need a reviewer to resolve; submit requires a clean current audit; deactivating a fact or policy triggers Brand Drift; numeric facts added by an administrator are enforced automatically.
+- **Signed passports.** Approvals are signed (HMAC-SHA256); *Verify passport* re-checks signature, content hash, evidence versions and approval state.
+- **Evaluation.** `python eval/run_eval.py` scores 62 labelled claims (precision, recall, false-positive rate, rewrite check). Add `--gemini` with `LLM_API_KEY` set to compare rules-only against rules + Gemini. See `eval/results_rules_only.md`.
+
+To turn Gemini on locally, put your key in `.env` (never commit it):
+
+```
+LLM_PROVIDER=gemini
+LLM_API_KEY=your-key
+LLM_MODEL=gemini-flash-latest
+```
+
+Then open Settings as Administrator and click **Test AI connection**. See [`DEPLOY.md`](DEPLOY.md) for hosting.
 
 ## Local setup
 
@@ -119,7 +138,9 @@ See `.env.example`:
 - `DATABASE_URL`: SQLite or PostgreSQL SQLAlchemy URL. Default is SQLite.
 - `DEMO_MODE`: keeps the synthetic workspace enabled.
 - `LLM_PROVIDER`, `LLM_API_KEY`: optional provider configuration. Use `gemini` plus a key to enable semantic suggestions; no key is required for rules-only mode.
-- `LLM_MODEL`: Gemini model name when `LLM_PROVIDER=gemini`.
+- `LLM_MODEL`: Gemini model name when `LLM_PROVIDER=gemini` (default `gemini-flash-latest`, an alias that avoids retired model names).
+- `LLM_MAX_RETRIES`, `LLM_RETRY_BASE_DELAY`: retry count and backoff for 429/5xx provider errors.
+- `PASSPORT_SECRET`: secret that signs content passports. Set a long random value outside the demo.
 - `MAX_UPLOAD_BYTES`: upload limit.
 - `STORAGE_DIR`: private local asset storage directory. Default is `uploads`.
 - `STORAGE_BACKEND`: `local` by default, or `s3` for the S3-compatible storage adapter.
@@ -153,7 +174,7 @@ Docker is not available in the current build environment, so no unverified image
 ## Known limitations
 
 - This is a synthetic-data demo workspace, not production authentication or full multi-tenant identity. Backend organization scoping is present for demo records, but production auth middleware and account provisioning remain necessary.
-- Rules remain authoritative for high-risk checks. An optional Gemini adapter is implemented, but no external key is bundled or live-tested.
+- Rules remain authoritative for high-risk checks. The Gemini features are covered by tests that mock the provider; verify them live with your own key (Settings > Test AI connection, and `eval/run_eval.py --gemini`).
 - PostgreSQL/Alembic migration support is included but PostgreSQL/Docker was not executed here. Lexical evidence retrieval, local visual comparison, and local/S3-compatible storage are implemented; pgvector retrieval remains deferred.
 - Background audit jobs use a persisted in-process worker pool for the demo. Distributed queues and notifications remain deployment extensions.
 - Image OCR requires the Python packages plus a separately installed Tesseract executable. Without it, the UI reports OCR as unavailable.

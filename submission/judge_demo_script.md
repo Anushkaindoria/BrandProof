@@ -23,6 +23,18 @@
 - Dependency-aware change impact avoids invalidating unrelated approvals.
 - Explicit rules-only mode keeps the demo reliable and honest without an API key; Gemini semantic suggestions are available when configured and provider failures remain visible.
 
-## Explain the Round 3 roadmap
+## Round 3 demonstration sequence (use this one)
 
-Round 2 proves the workflow. Round 3 will deepen it in exactly three places: better claim decomposition and evidence quality, a reproducible signed provenance bundle, and proactive prioritized drift analysis across more dependency types. Each roadmap item has a benchmark or replay test, not just a UI promise.
+1. **Upload a guideline.** As Administrator, open Brand Knowledge and upload a short guideline PDF or text file that states a new fact (for example "Charging speed: 65 W"), a banned word and a rule.
+2. **Extract and approve.** In Knowledge extraction, choose the document and click Extract proposals. Show a fact with its source quote and page, then Approve it. Point out that nothing became evidence until approval.
+3. **Submit the bad ad.** As Creator, audit: "Meet the NovaTech X1! Enjoy a 7000 mAh battery and completely waterproof protection. The best phone ever!" Show the three flags with their evidence, and the Rule check and AI suggestion badges.
+4. **Show the gate.** Try to dismiss the battery finding as Creator. It is refused: high-severity findings need a reviewer.
+5. **Smart rewrite.** Click Suggest rewrite. Show each change with its reason, reject one, apply the rest, and show the rules check result. Run the audit again on the new version.
+6. **Approve.** Submit, switch to Reviewer, approve.
+7. **Verify the passport.** Open Content History, view the passport, click Verify passport and show all four checks pass.
+8. **Drift.** As Administrator, change an approved fact. Show the Verify passport result now reports changed evidence, and the content appears in Brand Drift.
+9. **Settings.** Show the provider and model, and Test AI connection. Mention the rules-only fallback if Gemini is unavailable.
+
+## What to say about safety
+
+Rules stay authoritative. Gemini proposes; code verifies; a human decides. If Gemini is down the audit still runs on rules and says so.
